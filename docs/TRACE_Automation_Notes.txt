@@ -1,0 +1,48 @@
+TRACE / Studio 5000 / RSLinx Classic - Nightly Handoff (2026-10-12)
+
+SCRIPT: TRACE_Studio5000_Automation.ps1
+
+WHAT WAS VERIFIED IN THE VM
+- Studio 5000 native main menu has 9 items; File is position 0 and Communications is position 5.
+- RSLinx Classic Lite standalone RSWho process PID was 3948; its SysTreeView32 contained 221 nodes.
+- 64-bit PowerShell could not read RSLinx TVITEM text; 32-bit PowerShell successfully used TVM_GETITEMW and cross-process memory.
+- Workstation root: 'Workstation, CBC-LAPTOP-EWS'.
+- Driver: '192_168_1, Ethernet'.
+- Device: '192.168.1.1, 1769-L30ER LOGIX5330ER, 1769-L30ER/A LOGIX5330ER'.
+- TVM_SELECTITEM / TVGN_CARET returned 1 when selecting the device in standalone RSLinx.
+- Studio 5000 Who Active is a dialog belonging to the Studio process, not the standalone RSWho browser. Window handles change each time the dialog opens.
+- Studio Who Active displayed path '192_168_1\192.168.1.1'.
+- Who Active contains 'Upload...', 'Download', and a SysTreeView32.
+- BM_CLICK on the Upload button successfully triggered a Studio modal prompt.
+- Prompt was 'Project file Live_Test.ACD has been changed. Save the changes?' because the active Studio project had unsaved changes.
+- User identified preferred production workflow: start Studio 5000 without a project loaded to avoid this prompt.
+
+WHAT THE SCRIPT DOES
+- 'Inspect': verifies the RSLinx driver and PLC without selecting or uploading.
+- 'Select': selects the verified device in the standalone RSLinx browser.
+- 'Upload': selects in standalone RSWho, then requires the Studio Who Active dialog already open and showing the correct path, verifies Upload button, and clicks Upload.
+- The standalone RSWho selection does NOT automatically select the same PLC in Studio Who Active. This distinction is important.
+- No Download, PLC write, project save, export, or automatic cleanup is implemented.
+
+EXAMPLES (32-BIT WINDOWS POWERSHELL)
+cd C:\Users\Engineering\Desktop   # or the folder where you saved the script
+.\TRACE_Studio5000_Automation.ps1 -Action Inspect
+.\TRACE_Studio5000_Automation.ps1 -Action Select
+.\TRACE_Studio5000_Automation.ps1 -Action Upload
+
+NEXT TESTS
+1. Launch Studio 5000 with no project loaded; confirm Who Active and Upload are available.
+2. Make the script locate/expand/select the PLC in the Studio Who Active tree itself, rather than depending on a manually selected path.
+3. Handle Studio Upload dialogs, save actual .ACD into TRACE staging, export .L5K via Save As.
+4. Integrate host audit-value polling, structural comparison, SQL history and archive/hold logic.
+
+HOST CONTEXT
+- TRACE host directory: C:\Users\ElecShop\TRACE_Latest
+- PLC: 192.168.1.1, 1769-L30ER/A, firmware 30.11, serial d023fd49, controller name zacks_a_fairy.
+- SQL Server: localhost\SQLEXPRESS, database TRACE.
+- Host Step247_Read_Audit_Value.py reads audit value using connected CIP Generic message (service 0x0E, class 0x8E, instance 1, attribute 0x1B).
+- Existing backup engine: V0_019_Backup_Manager.py; web app: V0.011_Web.py.
+- Preserve backups, do not download to PLC, do not commit proprietary ACD/L5K to public GitHub.
+
+IMPORTANT LIMITATION
+This is a consolidated prototype, not a tested end-to-end extraction utility. It uses working Win32 techniques but the combined script itself still needs a VM test. In particular, the Who Active dialog must already show the intended path; standalone RSLinx selection alone does not guarantee it.

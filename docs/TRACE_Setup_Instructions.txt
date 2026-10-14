@@ -1,0 +1,24 @@
+TRACE New Computer Setup
+========================
+
+ON YOUR CURRENT DEVELOPMENT COMPUTER:
+1. From the TRACE project folder, export the Python packages from the environment that runs TRACE:
+   py -m pip freeze > requirements.txt
+   (If TRACE uses a virtual environment, use its Python instead: .\.venv\Scripts\python.exe -m pip freeze > requirements.txt)
+2. Export VS Code extensions:
+   code --list-extensions > vscode-extensions.txt
+3. Add setup.ps1, requirements.txt, and vscode-extensions.txt to the GitHub repository.
+4. Ensure .venv/, credentials, and local database/backups are excluded from Git via .gitignore.
+
+ON THE NEW COMPUTER:
+1. Install Git, Python 3, and VS Code.
+2. Clone your TRACE repository and open PowerShell in the cloned folder.
+3. Run:
+   powershell -ExecutionPolicy Bypass -File .\setup.ps1
+4. Optional SQL connection test (Windows authentication):
+   powershell -ExecutionPolicy Bypass -File .\setup.ps1 -SqlServer '.\SQLEXPRESS' -Database 'TRACE' -CheckSqlConnection
+5. Configure SQL Server Express, restore/create the TRACE database, install the required Microsoft ODBC driver, set up backup folders, and obtain approved access to the plant PLC network.
+6. Start TRACE with:
+   .\.venv\Scripts\python.exe .\V0.011_Web.py
+
+IMPORTANT: setup.ps1 does not automatically install SQL Server or create the database; it checks for an ODBC driver and optionally tests SQL connectivity. Scheduled controller uploads are not configured by this script.

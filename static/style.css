@@ -1,0 +1,649 @@
+
+/* ============================================================
+   STEP 533 — TRACE INDUSTRIAL DASHBOARD DESIGN SYSTEM
+   ============================================================ */
+
+:root {
+    --navy-deep: #03152a;
+    --navy: #062647;
+    --navy-medium: #074272;
+    --blue: #0865c1;
+    --blue-bright: #00b8ff;
+    --cyan: #27d2ff;
+    --surface: #f0f5fc;
+    --card: #ffffff;
+    --text: #12233b;
+    --muted: #60728b;
+    --border: #bed3e9;
+    --sidebar-width: 300px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: var(--text);
+    background: var(--surface);
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+/* APPLICATION FRAME */
+
+.trace-shell {
+    min-height: 100vh;
+}
+
+.sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: var(--sidebar-width);
+    background:
+        linear-gradient(135deg, transparent 75%, rgba(0,170,255,.13) 76%, transparent 78%),
+        linear-gradient(155deg, #021328, #06315a 72%, #02152c);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #096aab;
+    box-shadow: 5px 0 24px rgba(0,22,50,.25);
+    z-index: 20;
+}
+
+.trace-brand {
+    padding: 24px 20px 26px;
+    border-bottom: 3px solid var(--blue-bright);
+    box-shadow: 0 5px 14px rgba(0,184,255,.24);
+}
+
+.trace-brand-plate {
+    position: relative;
+    padding: 8px 12px 12px;
+    border: 2px solid #8e9dad;
+    border-radius: 12px;
+    text-align: center;
+    background: linear-gradient(155deg, #e4e9ef, #78899c 48%, #d6dfe8);
+    box-shadow:
+        inset 0 2px 5px #ffffff,
+        inset 0 -4px 8px #59697b,
+        0 9px 18px #0008;
+}
+
+.trace-brand-plate > span {
+    font-family: "Arial Black", "Segoe UI", sans-serif;
+    font-size: 49px;
+    font-weight: 900;
+    letter-spacing: -3px;
+    line-height: 1.1;
+    color: #0b2035;
+    text-shadow: 0 2px 1px #f5faff, 0 4px 3px #465c70;
+}
+
+.trace-brand-a {
+    color: #008fe9;
+    text-shadow: 0 0 9px #00d7ff;
+}
+
+.trace-brand-line {
+    height: 3px;
+    margin: 2px 10px 0;
+    background: linear-gradient(90deg, #133554, #00c8ff, #00549e);
+    box-shadow: 0 0 10px #00c8ff;
+}
+
+/* NAVIGATION */
+
+.trace-navigation {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 30px 12px;
+}
+
+.trace-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 17px;
+    padding: 14px 18px;
+    color: #e1efff;
+    text-decoration: none;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    font-size: 17px;
+    transition: background .2s, border-color .2s, transform .2s;
+}
+
+.trace-nav-link:hover {
+    background: rgba(0,139,255,.2);
+    border-color: #1373b4;
+    transform: translateX(2px);
+}
+
+.trace-nav-link.active {
+    background: linear-gradient(120deg, #0087e9, #064d9f);
+    border-color: #00adff;
+    color: white;
+    box-shadow: inset 0 1px 0 #69d8ff, 0 4px 12px #00182c;
+}
+
+.trace-nav-icon {
+    width: 28px;
+    font-size: 25px;
+    line-height: 1;
+    text-align: center;
+    color: #d6edff;
+}
+
+.trace-sidebar-footer {
+    margin-top: auto;
+    padding: 18px;
+    border-top: 1px solid #174e7a;
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    color: #9fb9d4;
+}
+
+.trace-sidebar-pulse,
+.trace-status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #25db69;
+    margin-right: 9px;
+    box-shadow: 0 0 9px #25db69;
+}
+
+/* MAIN WORKSPACE */
+
+.trace-workspace {
+    margin-left: var(--sidebar-width);
+    min-width: 0;
+}
+
+.trace-topbar {
+    min-height: 72px;
+    background: linear-gradient(105deg, #03182f, #07335b, #021529);
+    border-bottom: 3px solid #00bfff;
+    box-shadow: 0 4px 14px #00396535;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 32px;
+    color: white;
+}
+
+.trace-topbar-title {
+    color: #c0def3;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+}
+
+.trace-topbar-status {
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.main-content {
+    padding: 28px 32px 48px;
+    min-width: 0;
+    max-width: none;
+}
+
+/* PAGE HEADINGS */
+
+h1, h2, h3, h4 {
+    color: #0b2a4c;
+    line-height: 1.25;
+}
+
+h1 {
+    font-size: 34px;
+    margin: 0 0 18px;
+}
+
+h2 {
+    font-size: 25px;
+}
+
+h3 {
+    font-size: 20px;
+}
+
+h4 {
+    font-size: 17px;
+}
+
+/* DEMO HERO */
+
+.trace-demo-header {
+    position: relative;
+    overflow: hidden;
+    min-height: 135px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin: -28px -32px 24px;
+    padding: 26px 36px;
+    color: white;
+    background:
+        linear-gradient(120deg, transparent 65%, #00bfff44 65.2%, transparent 65.5%),
+        linear-gradient(120deg, #031b35, #064b85 65%, #04182f);
+    border-bottom: 3px solid #00bbff;
+}
+
+.trace-demo-header::after {
+    content: "";
+    position: absolute;
+    right: 5%;
+    bottom: 0;
+    width: 180px;
+    height: 90px;
+    opacity: .2;
+    background: repeating-linear-gradient(
+        90deg, #69caff 0 13px, #002e57 13px 18px
+    );
+    transform: skew(-10deg);
+    pointer-events: none;
+}
+
+.trace-demo-heading {
+    position: relative;
+    z-index: 1;
+}
+
+.trace-demo-heading h1 {
+    color: white;
+    margin: 0;
+    font-size: clamp(27px, 3vw, 39px);
+    text-shadow: 0 2px 5px #0006;
+}
+
+.trace-demo-heading p {
+    margin: 5px 0 0;
+    color: #d8edff;
+    font-size: 18px;
+}
+
+.trace-demo-status {
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #d9efff;
+    font-size: 13px;
+}
+
+.trace-status-indicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #20d96d;
+}
+
+/* DASHBOARD CARDS */
+
+.trace-card {
+    background: linear-gradient(140deg, #ffffff, #edf5ff);
+    border: 1px solid #b4cde7;
+    border-radius: 16px;
+    overflow: hidden;
+    margin-bottom: 22px;
+    box-shadow: 0 5px 13px #153d6722;
+}
+
+.trace-card-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 67px;
+    padding: 12px 22px;
+    color: white;
+    background: linear-gradient(115deg, #00345f, #0066ad 60%, #002b55);
+    border-bottom: 2px solid #13bfff;
+}
+
+.trace-card-header h2,
+.trace-card-header h3 {
+    color: white;
+    font-size: 23px;
+    margin: 0;
+}
+
+.trace-card-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 48px;
+    height: 44px;
+    font-size: 30px;
+    color: #30d2ff;
+    border-right: 1px solid #59b9ec88;
+    padding-right: 12px;
+}
+
+.trace-card-body {
+    padding: 22px 28px 25px;
+}
+
+.trace-card-body > p:first-child {
+    margin-top: 0;
+}
+
+/* FORM LAYOUT */
+
+.trace-field-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    margin: 16px 0;
+}
+
+.trace-field-row label {
+    font-weight: 700;
+}
+
+input,
+select,
+textarea {
+    font: inherit;
+    color: var(--text);
+    border: 1px solid #9eb8d5;
+    border-radius: 8px;
+    background: #fff;
+    padding: 10px 13px;
+    max-width: 100%;
+}
+
+select {
+    min-width: 260px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: 2px solid #13a8ed;
+    outline-offset: 1px;
+}
+
+input[type="file"] {
+    max-width: 100%;
+    background: #f5faff;
+}
+
+.trace-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+button,
+input[type="submit"],
+.trace-button {
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+    padding: 11px 19px;
+    border-radius: 8px;
+    border: 1px solid #0063b4;
+    color: white;
+    background: linear-gradient(135deg, #0087e9, #034da5);
+    box-shadow: inset 0 1px 0 #8bd8ff, 0 3px 8px #0b478c30;
+    transition: filter .18s, transform .18s;
+}
+
+button:hover,
+input[type="submit"]:hover,
+.trace-button:hover {
+    filter: brightness(1.12);
+    transform: translateY(-1px);
+}
+
+button:focus-visible,
+a:focus-visible {
+    outline: 3px solid #21baff;
+    outline-offset: 2px;
+}
+
+.trace-button-secondary {
+    background: linear-gradient(135deg, #e6f3ff, #bedaf4);
+    color: #07355f;
+    border-color: #8aafd4;
+}
+
+.trace-button-danger {
+    background: linear-gradient(135deg, #d94350, #a51d30);
+    border-color: #a51d30;
+}
+
+.trace-button-success {
+    background: linear-gradient(135deg, #139a66, #087348);
+    border-color: #087348;
+}
+
+/* RESULTS AND NOTIFICATIONS */
+
+.trace-notice {
+    padding: 13px 16px;
+    border-radius: 9px;
+    margin: 15px 0;
+    border: 1px solid #bfd4e8;
+    background: #edf6ff;
+}
+
+.trace-notice-success {
+    color: #0b6243;
+    background: #e5f8ed;
+    border-color: #8ed6af;
+}
+
+.trace-notice-error {
+    color: #912434;
+    background: #ffebed;
+    border-color: #e9a0a8;
+}
+
+.trace-notice-warning {
+    color: #805300;
+    background: #fff5d7;
+    border-color: #e5c778;
+}
+
+.trace-results-empty {
+    text-align: center;
+    padding: 25px 12px;
+    color: var(--muted);
+}
+
+.trace-results-empty-icon {
+    display: grid;
+    place-items: center;
+    margin: 0 auto 12px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    color: white;
+    font-size: 25px;
+    font-weight: 700;
+    background: linear-gradient(#00a3f4, #0054a5);
+}
+
+.trace-rung-card {
+    border: 1px solid #b7cce3;
+    border-radius: 12px;
+    background: white;
+    padding: 18px;
+    margin: 18px 0;
+}
+
+.trace-rung-card h4 {
+    margin: 0 0 12px;
+}
+
+.trace-rung-metadata {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.trace-logic-section {
+    margin-top: 18px;
+}
+
+.trace-svg-container {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: white;
+    border: 1px solid #bed0e3;
+    border-radius: 8px;
+    padding: 10px;
+}
+
+.trace-svg-container svg {
+    display: block;
+    max-width: none;
+}
+
+.trace-logic-code {
+    padding: 14px;
+    background: #f6f9fd;
+    border: 1px solid #d2deeb;
+    border-radius: 8px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 13px/1.6 Consolas, monospace;
+}
+
+.trace-diff-previous {
+    background: #ccffcc;
+    color: #006400;
+    font-weight: bold;
+}
+
+.trace-diff-new {
+    background: #ffcccc;
+    color: #8b0000;
+    font-weight: bold;
+}
+
+/* TABLES ON OTHER TRACE PAGES */
+
+table {
+    border-collapse: collapse;
+    width: 100%;
+    background: white;
+}
+
+th, td {
+    border-bottom: 1px solid #d9e4f0;
+    padding: 11px 14px;
+    text-align: left;
+}
+
+th {
+    background: #e1effc;
+    color: #0c3458;
+}
+
+tr:hover td {
+    background: #f1f8ff;
+}
+
+/* RESPONSIVE LAYOUT */
+
+@media (max-width: 900px) {
+    :root {
+        --sidebar-width: 225px;
+    }
+
+    .trace-brand-plate > span {
+        font-size: 35px;
+    }
+
+    .trace-nav-link {
+        font-size: 14px;
+        padding: 12px;
+    }
+
+    .main-content {
+        padding: 20px;
+    }
+
+    .trace-demo-header {
+        margin: -20px -20px 20px;
+    }
+}
+
+@media (max-width: 650px) {
+    .sidebar {
+        position: static;
+        width: 100%;
+    }
+
+    .trace-brand {
+        padding: 12px;
+    }
+
+    .trace-navigation {
+        flex-direction: row;
+        overflow-x: auto;
+        padding: 10px;
+    }
+
+    .trace-nav-link {
+        flex-shrink: 0;
+    }
+
+    .trace-sidebar-footer {
+        display: none;
+    }
+
+    .trace-workspace {
+        margin-left: 0;
+    }
+
+    .trace-topbar {
+        padding: 12px;
+        flex-wrap: wrap;
+    }
+
+    .trace-demo-header {
+        flex-wrap: wrap;
+        padding: 22px;
+    }
+
+    .trace-card-body {
+        padding: 18px;
+    }
+
+    select {
+        min-width: 0;
+        width: 100%;
+    }
+}
+
+/* STEP 536: CONSTRAIN TRACE LOGO TO SIDEBAR */
+
+.trace-brand {
+    width: 100%;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.trace-brand .trace-logo {
+    display: block;
+    width: 100%;
+    max-width: 260px;
+    height: auto;
+    object-fit: contain;
+    margin: 0 auto;
+}

@@ -1,0 +1,83 @@
+TRACE — COMMISSIONING STATE RESET
+=================================
+
+PURPOSE
+Return the TRACE demo to an empty commissioning state without changing application code or the physical PLC. This deletes TRACE inventory, hardware history, audit registration, comparison history, and backup files.
+
+WARNING
+DESTRUCTIVE. Only run against the intended test TRACE SQL database and test backup directory. Back up any data you want to keep. Stop TRACE/Flask before starting.
+
+STEP 1 — STOP TRACE
+In the PowerShell window running TRACE, press Ctrl+C.
+
+STEP 2 — RESET SQL TABLE DATA
+Run the following in SQL Server Management Studio against the intended local SQL Express instance:
+
+USE [TRACE];
+GO
+
+-- TRACE COMMISSIONING RESET: DELETE OPERATIONAL DATA
+SET XACT_ABORT ON;
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    DELETE FROM dbo.BackupComparisons;
+    DELETE FROM dbo.RungChanges;
+    DELETE FROM dbo.HardwareEvents;
+    DELETE FROM dbo.Backups;
+    DELETE FROM dbo.ControllerHardware;
+    DELETE FROM dbo.ControllerProjects;
+    DELETE FROM dbo.Controllers;
+
+    COMMIT TRANSACTION;
+    PRINT 'TRACE commissioning reset successful.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+
+-- VERIFY ALL SEVEN TABLES ARE EMPTY
+SELECT 'Controllers' AS TableName, COUNT(*) AS Records FROM dbo.Controllers
+UNION ALL SELECT 'ControllerHardware', COUNT(*) FROM dbo.ControllerHardware
+UNION ALL SELECT 'ControllerProjects', COUNT(*) FROM dbo.ControllerProjects
+UNION ALL SELECT 'Backups', COUNT(*) FROM dbo.Backups
+UNION ALL SELECT 'BackupComparisons', COUNT(*) FROM dbo.BackupComparisons
+UNION ALL SELECT 'RungChanges', COUNT(*) FROM dbo.RungChanges
+UNION ALL SELECT 'HardwareEvents', COUNT(*) FROM dbo.HardwareEvents;
+
+Expected: 0 records in each table. Identity counters are NOT reset; a newly discovered PLC may receive a higher ControllerID (e.g., 10 rather than 1).
+
+STEP 3 — RESET BACKUP STORAGE
+Run in PowerShell. Verify the directory is the intended TRACE test backup location before executing:
+
+# TRACE COMMISSIONING RESET: CLEAR TEST BACKUPS
+$backupRoot = 'C:\TRACE_Backups'
+$stagingPath = Join-Path $backupRoot 'Staging'
+New-Item -ItemType Directory -Path $stagingPath -Force | Out-Null
+Get-ChildItem -LiteralPath $backupRoot -Force |
+    Where-Object { $_.Name -ne 'Staging' } |
+    Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $stagingPath -Force |
+    Remove-Item -Recurse -Force
+Get-ChildItem -LiteralPath $backupRoot -Force
+
+Expected: only the empty Staging folder remains under C:\TRACE_Backups.
+
+STEP 4 — START TRACE AND VERIFY
+In PowerShell:
+
+run trace
+
+Open http://127.0.0.1:5000/demo
+Expected: Available PLCs dropdown initially empty.
+
+STEP 5 — BEGIN COMMISSIONING TEST
+Click Refresh PLC List to discover and register eligible PLCs on the configured discovery network. This repopulates SQL; do not click it until ready to begin the test.
+
+NOTES
+- This resets SQL records and backup storage, NOT the PLC program, PLC IP address, or serial number.
+- It preserves TRACE Python files, HTML templates, SQL schema, and PowerShell startup function.
+- Current pre-reset test identity: ControllerID 9, programmed name zacks_a_fairy, serial d023fd49, last reported IP 192.168.1.16.
+- For the tested TRACE implementation, discovery targets 192.168.1.0/24 and must be run only on an authorized network.

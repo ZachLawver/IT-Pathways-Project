@@ -1,0 +1,99 @@
+
+{% extends "base.html" %}
+
+{% block title %}TRACE - Event History{% endblock %}
+
+{% block content %}
+
+<!-- SECTION 1: EVENT HISTORY HEADER -->
+<h1>Event History</h1>
+
+<p>
+    Review processor replacement warnings,
+    technician confirmations, and dismissed events.
+</p>
+
+<!-- SECTION 2: HARDWARE EVENT HISTORY -->
+<h2>Hardware Events</h2>
+
+{% if hardware_events %}
+
+    <table border="1" cellpadding="10" cellspacing="0"
+           style="width: 100%; border-collapse: collapse;">
+
+        <thead>
+            <tr>
+                <th>Event ID</th>
+                <th>Equipment</th>
+                <th>Controller ID</th>
+                <th>Event Type</th>
+                <th>IP Address</th>
+                <th>Status</th>
+                <th>Detected (UTC)</th>
+                <th>Resolved (UTC)</th>
+                <th>Resolved By</th>
+                <th>Resolution Notes</th>
+            </tr>
+        </thead>
+
+        <tbody>
+
+            {% for event in hardware_events %}
+
+                <tr>
+                    <td>{{ event.EventID }}</td>
+
+                    <td>{{ event.ControllerName }}</td>
+
+                    <td>{{ event.ControllerID }}</td>
+
+                    <td>
+                        {% if event.EventType == "PossibleReplacement" %}
+                            Possible Processor Replacement
+                        {% else %}
+                            {{ event.EventType }}
+                        {% endif %}
+                    </td>
+
+                    <td>{{ event.DetectedIPAddress or "—" }}</td>
+
+                    <td>
+                        {% if event.EventStatus == "Pending" %}
+                            <strong style="color: #d97706;">
+                                Pending
+                            </strong>
+
+                        {% elif event.EventStatus == "Confirmed" %}
+                            <strong style="color: #15803d;">
+                                Confirmed
+                            </strong>
+
+                        {% elif event.EventStatus == "Dismissed" %}
+                            <strong>Dismissed</strong>
+
+                        {% else %}
+                            {{ event.EventStatus }}
+                        {% endif %}
+                    </td>
+
+                    <td>{{ event.DetectedAt }}</td>
+
+                    <td>{{ event.ResolvedAt or "—" }}</td>
+
+                    <td>{{ event.ResolvedBy or "—" }}</td>
+
+                    <td>{{ event.ResolutionNotes or "—" }}</td>
+                </tr>
+
+            {% endfor %}
+
+        </tbody>
+    </table>
+
+{% else %}
+
+    <p>No hardware events have been recorded.</p>
+
+{% endif %}
+
+{% endblock %}

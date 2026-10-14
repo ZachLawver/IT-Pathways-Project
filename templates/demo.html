@@ -1,0 +1,361 @@
+
+{% extends "base.html" %}
+
+{% block title %}TRACE - Demo{% endblock %}
+
+{% block content %}
+
+<!-- STEP 534: TRACE INDUSTRIAL DEMONSTRATION PAGE -->
+
+<div class="trace-demo">
+
+    <header class="trace-demo-header">
+        <div class="trace-demo-heading">
+            <h1>TRACE Demonstration</h1>
+            <p>PLC Audit &amp; Change Detection</p>
+        </div>
+
+        <div class="trace-demo-status">
+            <span class="trace-status-indicator"></span>
+            TRACE Demonstration
+        </div>
+    </header>
+
+    <!-- INITIAL PLC REGISTRATION -->
+
+    <section class="trace-card">
+
+        <div class="trace-card-header">
+            <span class="trace-card-icon" aria-hidden="true">⚙</span>
+            <h2>Initial PLC Registration</h2>
+        </div>
+
+        <div class="trace-card-body">
+
+            <p>
+                Select an available PLC to register its initial
+                Audit Value or check an existing registration.
+            </p>
+
+            <form action="{{ url_for('demo') }}" method="POST">
+
+                <div class="trace-field-row">
+                    <label for="demo_controller">
+                        Available PLCs:
+                    </label>
+
+                    <select id="demo_controller"
+                            name="controller_id"
+                            required>
+                        {% for controller in demo_controllers %}
+                            <option value="{{ controller.ControllerID }}">
+                                {{ controller.ControllerName }}
+                                ({{ controller.IPAddress }})
+                                {% if controller.IsRegistered %}
+                                    (Registered)
+                                {% endif %}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="trace-actions">
+
+                    <button type="submit"
+                            name="action"
+                            value="register_audit">
+                        + Register PLC
+                    </button>
+
+                    <button type="submit"
+                            name="action"
+                            value="check_audit"
+                            class="trace-button-secondary">
+                        ✓ Check Audit Value
+                    </button>
+
+                    <button type="submit"
+                            name="action"
+                            value="scan_network"
+                            formnovalidate
+                            class="trace-button-secondary">
+                        ↻ Refresh PLC List
+                    </button>
+
+                </div>
+
+            </form>
+
+            {% if registration_message %}
+                <div class="trace-notice trace-notice-success">
+                    <strong>{{ registration_message }}</strong>
+
+                    <p><strong>PLC Name:</strong> {{ friendly_name }}</p>
+                    <p><strong>Serial Number:</strong> {{ registered_serial }}</p>
+                    <p><strong>Initial Audit Value:</strong> {{ registered_audit }}</p>
+                </div>
+            {% endif %}
+
+            {% if registration_error %}
+                <div class="trace-notice trace-notice-error">
+                    <strong>Registration Error:</strong>
+                    {{ registration_error }}
+                </div>
+            {% endif %}
+
+            {% if audit_result %}
+                <div class="trace-notice">
+                    <h3>Audit Comparison Results</h3>
+
+                    <p><strong>PLC Name:</strong>
+                        {{ audit_result.friendly_name }}</p>
+                    <p><strong>Serial Number:</strong>
+                        {{ audit_result.serial_number }}</p>
+                    <p><strong>Registered Audit Value:</strong>
+                        {{ audit_result.initial_audit }}</p>
+                    <p><strong>Current Audit Value:</strong>
+                        {{ audit_result.current_audit }}</p>
+
+                    {% if audit_result.change_detected %}
+                        <div class="trace-notice trace-notice-warning">
+                            Change detected — PLC upload suggested.
+                        </div>
+                    {% else %}
+                        <div class="trace-notice trace-notice-success">
+                            No change detected.
+                        </div>
+                    {% endif %}
+                </div>
+            {% endif %}
+
+            {% if audit_error %}
+                <div class="trace-notice trace-notice-error">
+                    <strong>Audit Check Error:</strong>
+                    {{ audit_error }}
+                </div>
+            {% endif %}
+
+        </div>
+    </section>
+
+    <!-- MANUAL PROJECT COMPARISON -->
+
+    <section class="trace-card">
+
+        <div class="trace-card-header">
+            <span class="trace-card-icon" aria-hidden="true">▤</span>
+            <h2>Manual Project Comparison</h2>
+        </div>
+
+        <div class="trace-card-body">
+
+            <form action="{{ url_for('demo') }}"
+                  method="POST"
+                  enctype="multipart/form-data">
+
+                <h3>Select File</h3>
+
+                <div class="trace-field-row">
+                    <label for="upload_controller">
+                        Select Associated PLC From Registry:
+                    </label>
+
+                    <select id="upload_controller"
+                            name="controller_id"
+                            required>
+                        {% for controller in demo_controllers %}
+                            <option value="{{ controller.ControllerID }}">
+                                {{ controller.ControllerName }}
+                                ({{ controller.IPAddress }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <p>
+                    Choose a file to run comparison against
+                    the current backup.
+                </p>
+
+                <div class="trace-field-row">
+                    <label for="demo_L5X_file">
+                        Select L5X File For Comparison:
+                    </label>
+
+                    <input type="file"
+                           id="demo_L5X_file"
+                           name="L5X_file"
+                           accept=".L5X,.l5x"
+                           required>
+                </div>
+
+                <div class="trace-actions">
+                    <button type="submit"
+                            name="action"
+                            value="upload_L5X">
+                        ▶ Run Comparison
+                    </button>
+                </div>
+
+            </form>
+
+        </div>
+    </section>
+
+    <!-- COMPARISON RESULTS -->
+
+    <section class="trace-card">
+
+        <div class="trace-card-header">
+            <span class="trace-card-icon" aria-hidden="true">▥</span>
+            <h2>Comparison Results</h2>
+        </div>
+
+        <div class="trace-card-body">
+
+            {% if upload_error %}
+                <div class="trace-notice trace-notice-error">
+                    <strong>Comparison Error:</strong>
+                    {{ upload_error }}
+                </div>
+            {% endif %}
+
+            {% if upload_message %}
+                <div class="trace-notice trace-notice-success">
+                    {{ upload_message }}
+                </div>
+            {% endif %}
+
+            <!-- BACKUP APPROVAL -->
+
+            {% if upload_message and "pending review" in upload_message.lower() %}
+
+                <h3>Backup Review</h3>
+
+                <p>
+                    Review the comparison results before deciding
+                    whether to retain or discard the new backup.
+                </p>
+
+                <div class="trace-actions">
+
+                    <form action="{{ url_for('demo') }}" method="POST">
+                        <input type="hidden"
+                               name="action"
+                               value="retain_backup">
+
+                        <button type="submit"
+                                class="trace-button-success">
+                            ✓ Retain Backup
+                        </button>
+                    </form>
+
+                    <form action="{{ url_for('demo') }}" method="POST">
+                        <input type="hidden"
+                               name="action"
+                               value="discard_backup">
+
+                        <button type="submit"
+                                class="trace-button-danger">
+                            ✕ Discard Backup
+                        </button>
+                    </form>
+
+                </div>
+
+            {% endif %}
+
+            <!-- DETAILED LADDER LOGIC COMPARISON -->
+
+            {% if rung_changes %}
+
+                <h3>Detailed Ladder Logic Comparison</h3>
+
+                <p>
+                    <strong>{{ rung_changes|length }}</strong>
+                    ladder rung change(s) detected.
+                </p>
+
+                {% for change in rung_changes %}
+
+                    <article class="trace-rung-card">
+
+                        <h4>
+                            {{ change.change_type }} —
+                            Rung {{ change.rung }}
+                        </h4>
+
+                        <p class="trace-rung-metadata">
+                            <strong>Task:</strong> {{ change.task }} |
+                            <strong>Program:</strong> {{ change.program }} |
+                            <strong>Routine:</strong> {{ change.routine }}
+                        </p>
+
+                        <div class="trace-logic-section">
+                            <h4>Previous Logic</h4>
+
+                            {% if change.previous_svg %}
+                                <div class="trace-svg-container">
+                                    {{ change.previous_svg | safe }}
+                                </div>
+                            {% endif %}
+
+                            <pre class="trace-logic-code">{%- if change.previous_parts -%}
+                                {%- for text, changed in change.previous_parts -%}
+                                    {%- if changed -%}
+                                        <span class="trace-diff-previous">{{- text -}}</span>
+                                    {%- else -%}
+                                        {{- text -}}
+                                    {%- endif -%}
+                                {%- endfor -%}
+                            {%- else -%}
+                                (Rung did not exist)
+                            {%- endif -%}</pre>
+                        </div>
+
+                        <div class="trace-logic-section">
+                            <h4>New Logic</h4>
+
+                            {% if change.new_svg %}
+                                <div class="trace-svg-container">
+                                    {{ change.new_svg | safe }}
+                                </div>
+                            {% endif %}
+
+                            <pre class="trace-logic-code">{%- if change.new_parts -%}
+                                {%- for text, changed in change.new_parts -%}
+                                    {%- if changed -%}
+                                        <span class="trace-diff-new">{{- text -}}</span>
+                                    {%- else -%}
+                                        {{- text -}}
+                                    {%- endif -%}
+                                {%- endfor -%}
+                            {%- else -%}
+                                (Rung removed)
+                            {%- endif -%}</pre>
+                        </div>
+
+                    </article>
+
+                {% endfor %}
+
+            {% elif comparison_details %}
+
+                <h3>Detailed Comparison</h3>
+                <pre class="trace-logic-code">{{ comparison_details }}</pre>
+
+            {% elif not upload_message and not upload_error %}
+
+                <div class="trace-results-empty">
+                    <span class="trace-results-empty-icon">i</span>
+                    <p>Run a comparison to view results here.</p>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </section>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}TRACE - Backups{% endblock %}
+
+{% block content %}
+
+<!-- STEP 211: DISPLAY REGISTERED BACKUP HISTORY. -->
+
+<h1>PLC Backup History</h1>'
+
+<!-- STEP 216: SELECT A REGISTERED PLC. -->
+<form method="GET" action="{{ url_for('backups') }}">
+
+    <label for="controller_id">Select PLC:</label>
+
+    <select
+        name="controller_id"
+        id="controller_id"
+        onchange="this.form.submit()"
+    >
+        {% for controller in controllers %}
+        <option
+            value="{{ controller.ControllerID }}"
+            {% if controller.ControllerID == selected_controller_id %}
+                selected
+            {% endif %}
+        >
+            {{ controller.ControllerName }}
+        </option>
+        {% endfor %}
+    </select>
+
+    <noscript>
+        <button type="submit">View Backups</button>
+    </noscript>
+
+</form>
+
+<p>
+    Registered backup history for the selected PLC.
+    Backup files are preserved according to their retention decisions.
+</p>
+
+<table border="1" cellpadding="8" cellspacing="0">
+    <thead>
+        <tr>
+            <th>Backup ID</th>
+            <th>Date</th>
+            <th>Project</th>
+            <th>Filename</th>
+            <th>Source</th>
+            <th>Comparison</th>
+            <th>Retention</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for backup in backup_history %}
+        <tr>
+            <td>{{ backup.BackupID }}</td>
+            <td>{{ backup.CreatedAt }}</td>
+            <td>{{ backup.ProjectName or "Unidentified" }}</td>
+            <td>{{ backup.FilePath.split("\\")[-1] }}</td>
+            <td>{{ backup.BackupSource }}</td>
+            <td>{{ backup.ComparisonResult or "Not evaluated" }}</td>
+            <td>{{ backup.RetentionDecision or "Unknown" }}</td>
+        </tr>
+        {% else %}
+        <tr>
+            <td colspan="7">No registered backups found.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% endblock %}
