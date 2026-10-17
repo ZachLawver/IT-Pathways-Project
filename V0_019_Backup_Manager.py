@@ -204,32 +204,8 @@ def stage_backup(source_file, storage_root):
 # Read-only SQL lookup. Does not modify controller records.
 
 def get_backup_controller_name(controller_id):
-
-    connection = connect_trace_database()
-
-    try:
-        cursor = connection.cursor()
-
-        cursor.execute(
-            """
-            SELECT ControllerName
-            FROM dbo.Controllers
-            WHERE ControllerID = ?
-            """,
-            controller_id,
-        )
-
-        row = cursor.fetchone()
-
-        if row is None:
-            raise ValueError(
-                f"ControllerID {controller_id} is not registered in TRACE."
-            )
-
-        return row[0]
-
-    finally:
-        connection.close()
+    """Compatibility wrapper for the canonical controller-name lookup."""
+    return get_controller_name(controller_id)
 
 # STEP 162: GENERATE READABLE BACKUP FILENAMES.
 # Uses the controller name registered in TRACE.
@@ -287,6 +263,34 @@ def generate_backup_filename(controller_id, storage_root, file_extension):
 # STEP 159: REQUIRE THE REGISTERED CONTROLLER ID.
 # Used to retrieve the user-defined controller name from TRACE.
 
+def copy_verified_backup(source, destination):
+    """Copy and verify a backup without overwriting existing files."""
+    source = Path(source).resolve()
+    destination = Path(destination).resolve()
+
+    if not source.is_file():
+        raise FileNotFoundError(source)
+
+    # Exclusive creation prevents overwriting existing backups.
+    created = False
+
+    try:
+        with destination.open("xb") as output:
+            created = True
+            with source.open("rb") as input_file:
+                shutil.copyfileobj(input_file, output)
+
+        if calculate_file_hash(source) != calculate_file_hash(destination):
+            raise IOError("Backup archive failed SHA-256 verification.")
+
+    except Exception:
+        # Only remove a destination created by this operation.
+        if created:
+            destination.unlink(missing_ok=True)
+        raise
+
+    return destination
+
 def finalize_backup(staged_file, storage_root, evaluation, controller_id):
     staged = Path(staged_file)
     folders = initialize_backup_storage(storage_root)
@@ -334,16 +338,8 @@ def finalize_backup(staged_file, storage_root, evaluation, controller_id):
             f"Backup already exists: {destination}"
         )
 
-    # STEP 187: CREATE BACKUP EXCLUSIVELY.
-    # Never overwrite an existing archived file.
-    with destination.open("xb") as archived_output:
-        with staged.open("rb") as staged_input:
-            shutil.copyfileobj(staged_input, archived_output)
-
-    # Verify the archived copy before removing staging.
-    if calculate_file_hash(staged) != calculate_file_hash(destination):
-        destination.unlink(missing_ok=True)
-        raise IOError("Backup archive failed SHA-256 verification.")
+    # Copy exclusively and verify before removing staging.
+    copy_verified_backup(staged, destination)
 
     staged.unlink()
 
@@ -805,7 +801,7 @@ def connect_trace_database():
 
     connection_string = (
         "DRIVER={ODBC Driver 18 for SQL Server};"
-        "SERVER=localhost\\SQLEXPRESS;"
+        f"SERVER={os.environ.get('TRACE_SQL_SERVER', r'localhost\SQLEXPRESS')};"
         "DATABASE=TRACE;"
         "Trusted_Connection=yes;"
         "Encrypt=yes;"
@@ -1120,6 +1116,7 @@ def register_backup_transaction(
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 controller_id,
+                project_id,
                 str(file_path),
                 file_hash,
                 backup_source.value,
@@ -1247,14 +1244,8 @@ def archive_and_register_backup(
             f"Backup destination already exists: {destination}"
         )
     
-    # STEP 187: CREATE BACKUP EXCLUSIVELY.
-    # Never overwrite an existing archived file.
-    with destination.open("xb") as archived_output:
-        with staged.open("rb") as staged_input:
-            shutil.copyfileobj(staged_input, archived_output)
-    if calculate_file_hash(staged) != calculate_file_hash(destination):
-        destination.unlink(missing_ok=True)
-        raise IOError("Archived backup failed SHA-256 verification.")
+    # Copy exclusively and verify before SQL registration.
+    copy_verified_backup(staged, destination)
 
     # STEP 41G: REGISTER BACKUP AND COMPARISON TOGETHER.
     try:
@@ -1689,5 +1680,10 @@ if __name__ == "__main__":
     assert len(unregistered) == 0
 
     print("\nStep 82 passed: backup storage is clean.")
+
+
+
+
+
 
 

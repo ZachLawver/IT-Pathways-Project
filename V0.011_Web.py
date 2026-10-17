@@ -1,26 +1,16 @@
-# STEP 1: IMPORT FLASK WEB AND SESSION FEATURES.
-from flask import Flask, render_template, request, session
+﻿# STEP 1: IMPORT FLASK WEB AND SESSION FEATURES.
+from flask import Flask, render_template, request, session, redirect, url_for
 import pyodbc
+import os
 
 # STEP 1A: IMPORT SUPPORT FOR PROJECT FILE UPLOADS.
 from pathlib import Path
-from tempfile import TemporaryDirectory
 import importlib.util
 
 # DEMO STEP 20A: IMPORT PLC AUDIT READER DEPENDENCIES.
 from pycomm3 import CIPDriver
 import struct
 
-# STEP 1B: IMPORT THE LIVE ETHERNET CONTROLLER MONITOR.
-ethernet_module_path = Path(__file__).resolve().parent / "V0.014_Ethernet_Monitor.py"
-
-ethernet_spec = importlib.util.spec_from_file_location(
-    "trace_ethernet_monitor",
-    ethernet_module_path
-)
-
-ethernet_monitor = importlib.util.module_from_spec(ethernet_spec)
-ethernet_spec.loader.exec_module(ethernet_monitor)
 # STEP 2: CONFIGURE TRACE.
 app = Flask(__name__)
 
@@ -35,431 +25,21 @@ app.secret_key = secrets.token_hex(32)
 # Prevents excessively large uploads from being processed.
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
+BACKUP_ROOT = Path(os.environ.get("TRACE_BACKUP_ROOT", r"C:\TRACE_Backups"))
+
 # STEP 2B: CONFIGURE THE SQL SERVER CONNECTION.
 connection_string = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
-    r"SERVER=localhost\SQLEXPRESS;"
+    f"SERVER={os.environ.get('TRACE_SQL_SERVER', r'localhost\SQLEXPRESS')};"
     "DATABASE=TRACE;"
     "Trusted_Connection=yes;"
     "Encrypt=yes;"
     "TrustServerCertificate=yes;"
 )
-# STEP 2A: LOAD TRACE'S EXISTING CONTROLLER IDENTIFICATION MODULE.
-# This allows Flask to reuse the parser without changing its filename.
 
-module_path = Path(__file__).resolve().parent / "V0.012_Controller_ID.py"
-
-spec = importlib.util.spec_from_file_location(
-    "trace_controller_id",
-    module_path
-)
-
-controller_id_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(controller_id_module)
-
-# STEP 208: LOAD TRACE'S BACKUP MANAGER.
-# Reuse the existing backup-history functions.
-
-backup_module_path = (
-    Path(__file__).resolve().parent / "V0_019_Backup_Manager.py"
-)
-
-backup_spec = importlib.util.spec_from_file_location(
-    "trace_backup_manager",
-    backup_module_path,
-)
-
-backup_manager = importlib.util.module_from_spec(backup_spec)
-backup_spec.loader.exec_module(backup_manager)
-
-# STEP 3: RETRIEVE DASHBOARD INFORMATION FROM SQL SERVER.
-def get_dashboard_data():
-    connection = pyodbc.connect(connection_string, timeout=5)
-
-    try:
-        cursor = connection.cursor()
-
-        # Count registered controllers.
-        cursor.execute("SELECT COUNT(*) FROM dbo.Controllers")
-        controller_count = cursor.fetchone()[0]
-
-        # Count recorded rung changes.
-        cursor.execute("SELECT COUNT(*) FROM dbo.RungChanges")
-        change_count = cursor.fetchone()[0]
-
-        # Count registered backup records.
-        cursor.execute("SELECT COUNT(*) FROM dbo.Backups")
-        backup_count = cursor.fetchone()[0]
-
-        return {
-            "controllers": controller_count,
-            "changes": change_count,
-            "backups": backup_count
-        }
-
-    finally:
-        connection.close()
-        
-# STEP 4: DISPLAY THE DASHBOARD.
 @app.route("/")
-def dashboard():
-    data = get_dashboard_data()
-    return render_template("dashboard.html", data=data)
-
-  # STEP 5: DISPLAY CONTROLLERS AND HANDLE IDENTIFICATION OR REGISTRATION.
-@app.route("/controllers", methods=["GET", "POST"])
-def controllers():
-
-    # STEP 5A: PREPARE PAGE RESULTS.
-    metadata = None
-    error_message = None
-    success_message = None
-
-    # STEP 5B: HANDLE FORM SUBMISSIONS.
-    if request.method == "POST":
-
-        action = request.form.get("action")
-
-        # STEP 5C: IDENTIFY A CONTROLLER WITHOUT MODIFYING SQL.
-        if action == "identify":
-
-            # Remove any previously identified controller.
-            session.pop("identified_controller", None)
-
-            uploaded_file = request.files.get("project_file")
-
-            if uploaded_file is None or not uploaded_file.filename:
-                error_message = "Please select an L5X project file."
-
-            elif Path(uploaded_file.filename).suffix.lower() != ".l5x":
-                error_message = "Only L5X files are supported."
-
-            else:
-                try:
-                    # STEP 5D: PROCESS THE UPLOAD IN A TEMPORARY DIRECTORY.
-                    with TemporaryDirectory(prefix="trace_upload_") as temp_dir:
-                        project_path = Path(temp_dir) / "controller.l5x"
-                        uploaded_file.save(project_path)
-
-                        metadata = controller_id_module.identify_controller(
-                            project_path
-                        )
-
-                    # STEP 5E: REMEMBER THE IDENTIFIED METADATA.
-                    # Flask signs the session cookie to protect integrity.
-                    session["identified_controller"] = metadata
-
-                except (ValueError, OSError) as error:
-                    error_message = f"Unable to identify controller: {error}"
-
-                except Exception:
-                    app.logger.exception("Controller identification failed")
-                    error_message = "Controller identification failed."
-
-        # STEP 5F: REGISTER A PREVIOUSLY IDENTIFIED CONTROLLER.
-        elif action == "register":
-
-            metadata = session.get("identified_controller")
-
-            if not metadata:
-                error_message = "Identify a controller before registering it."
-
-            else:
-                try:
-                    # STEP 5G: REUSE THE EXISTING SQL REGISTRATION FUNCTION.
-                    result, controller_id = controller_id_module.save_controller(
-                        metadata
-                    )
-
-                    success_message = (
-                        f"{result} controller '{metadata['name']}' "
-                        f"with Controller ID {controller_id}."
-                    )
-
-                    # STEP 5H: CLEAR THE SESSION AFTER SUCCESS.
-                    session.pop("identified_controller", None)
-                    metadata = None
-
-                except Exception:
-                    app.logger.exception("Controller registration failed")
-                    error_message = "Controller registration failed. Check the server log."
-                
-        # STEP 5K: SCAN AND AUTOMATICALLY REGISTER A LIVE PLC.
-        elif action == "scan":
-
-            ip_address = request.form.get("ip_address", "").strip()
-
-            if not ip_address:
-                error_message = "Enter a controller IP address."
-
-            else:
-                try:
-                    # STEP 5L: IDENTIFY THE PLC OVER ETHERNET/IP.
-                    identity = ethernet_monitor.identify_controller(ip_address)
-
-                    # STEP 5M: REGISTER OR UPDATE ITS SQL RECORD.
-                    controller_id, result = ethernet_monitor.register_controller(
-                        identity
-                    )
-
-                    success_message = (
-                        f"Controller successfully {result}. "
-                        f"Controller ID: {controller_id}. "
-                        "You can now assign it a friendly name."
-                    )
-
-                except Exception:
-                    app.logger.exception("Ethernet controller scan failed")
-                    error_message = (
-                        "Unable to scan or register the controller. "
-                        "Check its IP address and the server log."
-                    )
-
-        # STEP 5N: CHANGE A CONTROLLER'S FRIENDLY NAME.
-        elif action == "rename":
-
-            controller_id = request.form.get("controller_id", "").strip()
-            new_name = request.form.get("controller_name", "").strip()
-
-            if not controller_id.isdigit() or not new_name:
-                error_message = "Select a controller and enter a name."
-
-            elif len(new_name) > 255:
-                error_message = "Controller names must be 255 characters or fewer."
-
-            else:
-                connection = None
-
-                try:
-                    # STEP 5O: UPDATE ONLY THE DISPLAY NAME.
-                    # ControllerID, serial number, and history remain unchanged.
-                    connection = pyodbc.connect(connection_string, timeout=5)
-                    cursor = connection.cursor()
-                    # STEP 348: CAPTURE THE OLD NAME BEFORE RENAMING.
-                    cursor.execute(
-                        "SELECT ControllerName FROM dbo.Controllers WHERE ControllerID = ?",
-                        int(controller_id)
-                    )
-
-                    old_record = cursor.fetchone()
-                    old_name = old_record[0] if old_record else None
-
-                    cursor.execute("""
-                        UPDATE dbo.Controllers
-                        SET ControllerName = ?
-                        WHERE ControllerID = ?
-                    """, new_name, int(controller_id))
-
-                    if cursor.rowcount != 1:
-                        connection.rollback()
-                        error_message = "Controller not found."
-
-                    else:
-                        # STEP 348: RENAME THE CONTROLLER BACKUP FOLDER.
-                        backup_root = Path(r"C:\TRACE_Backups")
-
-                        if old_name and old_name != new_name:
-                            old_folder = backup_root / old_name
-                            new_folder = backup_root / new_name
-
-                            if old_folder.exists():
-                                if new_folder.exists():
-                                    raise FileExistsError(
-                                        f"Backup folder already exists: {new_folder}"
-                                    )
-
-                                old_folder.rename(new_folder)
-
-                        connection.commit()
-
-                        success_message = (
-                            f"Controller renamed to '{new_name}'. "
-                            "Backup folder updated."
-                        )
-
-                except pyodbc.IntegrityError:
-                    if connection:
-                        connection.rollback()
-                    error_message = "That controller name is already in use."
-
-                except Exception:
-                    if connection:
-                        connection.rollback()
-                    app.logger.exception("Controller rename failed")
-                    error_message = "Unable to rename controller."
-
-                finally:
-                    if connection:
-                        connection.close()
-
-
-        # STEP 5R: CONFIRM A PROCESSOR REPLACEMENT.
-        elif action == "confirm_replacement":
-
-            # STEP 5R-1: VALIDATE THE SELECTED EVENT.
-            event_id = request.form.get("event_id", "").strip()
-
-            if not event_id.isdigit() or int(event_id) <= 0:
-                error_message = "Invalid hardware event."
-
-            else:
-                try:
-                    
-                    # STEP 5R-2: COLLECT TECHNICIAN INFORMATION.
-                    technician_name = request.form.get(
-                        "technician_name", ""
-                    ).strip()
-
-                    resolution_notes = request.form.get(
-                        "resolution_notes", ""
-                    ).strip()
-
-                    # STEP 5R-2: REVERIFY THE PHYSICAL PLC.
-                    # The monitor checks the connected processor
-                    # and performs the SQL updates transactionally.
-                    
-                    # STEP 5R-3: VERIFY THE PROCESSOR AND
-                    # SAVE THE TECHNICIAN'S RESOLUTION.
-                    controller_id = (
-                        ethernet_monitor.confirm_hardware_replacement(
-                            int(event_id),
-                            technician_name,
-                            resolution_notes
-                        )
-                    )
-
-
-                    success_message = (
-                        "Processor replacement confirmed for "
-                        f"Controller ID {controller_id}."
-                    )
-
-                except ValueError as error:
-                    error_message = str(error)
-
-                except Exception:
-                    app.logger.exception(
-                        "Processor replacement confirmation failed"
-                    )
-                    error_message = (
-                        "Unable to confirm processor replacement. "
-                        "Check the server log."
-                    )
-
-        # STEP 5S: DISMISS A HARDWARE REPLACEMENT WARNING.
-        elif action == "dismiss_replacement":
-
-            # STEP 5S-1: VALIDATE THE SELECTED EVENT.
-            event_id = request.form.get("event_id", "").strip()
-
-            if not event_id.isdigit() or int(event_id) <= 0:
-                error_message = "Invalid hardware event."
-
-            else:
-                
-                # STEP 5S-2: COLLECT AND VALIDATE
-                # TECHNICIAN ATTRIBUTION AND NOTES.
-                technician_name = request.form.get(
-                    "technician_name", ""
-                ).strip()
-
-                resolution_notes = request.form.get(
-                    "resolution_notes", ""
-                ).strip()
-
-                if (
-                    not technician_name
-                    or len(technician_name) > 150
-                    or not resolution_notes
-                    or len(resolution_notes) > 1000
-                ):
-                    error_message = (
-                        "Enter a technician name and maintenance "
-                        "notes within the permitted lengths."
-                    )
-
-                connection = None
-
-                if error_message is None:
-                    try:
-                        # STEP 5S-2: OPEN A DATABASE TRANSACTION.
-                        connection = pyodbc.connect(
-                            connection_string,
-                            timeout=5
-                        )
-                        cursor = connection.cursor()
-
-                        
-                        # STEP 5S-3: RECORD THE DISMISSAL.
-                        cursor.execute("""
-                            UPDATE dbo.HardwareEvents
-                            SET EventStatus = 'Dismissed',
-                                ResolvedAt = SYSUTCDATETIME(),
-                                ResolvedBy = ?,
-                                ResolutionNotes = ?
-                            WHERE EventID = ?
-                              AND EventType = 'PossibleReplacement'
-                              AND EventStatus = 'Pending'
-                        """,
-                            technician_name,
-                            resolution_notes,
-                            int(event_id)
-                        )
-
-                        if cursor.rowcount != 1:
-                            raise ValueError(
-                                "This warning is no longer pending."
-                            )
-
-                        # STEP 5S-4: PRESERVE THE EVENT HISTORY.
-                        connection.commit()
-                        success_message = (
-                            "Hardware replacement warning dismissed."
-                        )
-
-                    except ValueError as error:
-                        if connection:
-                            connection.rollback()
-                        error_message = str(error)
-
-                    except Exception:
-                        if connection:
-                            connection.rollback()
-                        app.logger.exception(
-                            "Hardware warning dismissal failed"
-                        )
-                        error_message = (
-                            "Unable to dismiss hardware warning."
-                        )
-
-                    finally:
-                        if connection:
-                            connection.close()
-
-        else:
-            error_message = "Unknown controller action."
-
-    # STEP 5I: KEEP THE CURRENT IDENTIFICATION VISIBLE ON PAGE REFRESH.
-    if metadata is None and not success_message:
-        metadata = session.get("identified_controller")
-
-   
-    # STEP 5J: LOAD THE UPDATED SQL INVENTORY.
-    controller_list = get_controllers()
-
-    # STEP 5P: LOAD PENDING PROCESSOR REPLACEMENT WARNINGS.
-    pending_hardware_events = get_pending_hardware_events()
-   
-    # STEP 5Q: RENDER CONTROLLERS AND HARDWARE WARNINGS.
-    return render_template(
-        "controllers.html",
-        controllers=controller_list,
-        metadata=metadata,
-        error_message=error_message,
-        success_message=success_message,
-        pending_hardware_events=pending_hardware_events
-    )
-
+def home():
+    return redirect(url_for("demo"))
 
 # STEP 6: RETRIEVE CONTROLLER INVENTORY AND MONITORING INFORMATION.
 def get_controllers():
@@ -510,102 +90,6 @@ def get_controllers():
 
     finally:
         connection.close()
-
-
-# STEP 7: RETRIEVE PENDING HARDWARE REPLACEMENT EVENTS.
-# Only display information technicians need for review.
-# Hardware serial numbers remain internal to TRACE.
-
-def get_pending_hardware_events():
-
-    # STEP 7A: CONNECT TO THE TRACE DATABASE.
-    connection = pyodbc.connect(
-        connection_string,
-        timeout=5
-    )
-
-    try:
-        cursor = connection.cursor()
-
-        # STEP 7B: RETRIEVE UNRESOLVED REPLACEMENT WARNINGS.
-        # Join to Controllers to display the friendly name.
-
-        cursor.execute("""
-            SELECT
-                h.EventID,
-                h.ControllerID,
-                c.ControllerName,
-                h.EventType,
-                h.DetectedIPAddress,
-                h.EventStatus,
-                h.DetectedAt
-            FROM dbo.HardwareEvents AS h
-            INNER JOIN dbo.Controllers AS c
-                ON h.ControllerID = c.ControllerID
-            WHERE h.EventStatus = 'Pending'
-              AND h.EventType = 'PossibleReplacement'
-            ORDER BY h.DetectedAt DESC
-        """)
-
-        # STEP 7C: CONVERT RESULTS INTO DICTIONARIES.
-        columns = [
-            column[0]
-            for column in cursor.description
-        ]
-
-        return [
-            dict(zip(columns, row))
-            for row in cursor.fetchall()
-        ]
-
-    finally:
-        connection.close()
-
-
-# SECTION 1: BACKUP MANAGEMENT PAGE
-# STEP 215: LOAD BACKUP HISTORY FOR A SELECTED CONTROLLER.
-@app.route("/backups")
-def backups():
-
-    # STEP 215A: LOAD ALL REGISTERED CONTROLLERS.
-    controller_list = get_controllers()
-
-    # STEP 215B: READ THE SELECTED CONTROLLER ID.
-    selected_id = request.args.get("controller_id", type=int)
-
-    # STEP 215C: DEFAULT TO THE FIRST REGISTERED CONTROLLER.
-    if selected_id is None and controller_list:
-        selected_id = controller_list[0]["ControllerID"]
-
-    # STEP 215D: ONLY ACCEPT REGISTERED CONTROLLER IDS.
-    valid_ids = {
-        controller["ControllerID"]
-        for controller in controller_list
-    }
-
-    if selected_id not in valid_ids:
-        selected_id = None
-
-    # STEP 215E: RETRIEVE THE SELECTED CONTROLLER'S BACKUPS.
-    backup_history = []
-
-    if selected_id is not None:
-        backup_history = backup_manager.get_controller_backup_history(
-            selected_id
-        )
-
-    # STEP 215F: PASS CONTROLLERS AND HISTORY TO THE TEMPLATE.
-    return render_template(
-        "backups.html",
-        controllers=controller_list,
-        selected_controller_id=selected_id,
-        backup_history=backup_history,
-    )
-
-# SECTION 2: AUDIT AND COMPARISON PAGE
-@app.route("/audit")
-def audit():
-    return render_template("audit.html")
 
 # DEMO STEP 20B: READ LIVE CONTROLLER AUDIT VALUE.
 # Read-only CIP request. Does not write to the PLC.
@@ -665,8 +149,7 @@ def register_demo_initial_audit(controller_id):
         cursor.execute("""
             UPDATE h
             SET
-                InitialAuditValue = ?,
-                AuditRegisteredAt = SYSUTCDATETIME()
+                InitialAuditValue = ?
             FROM dbo.ControllerHardware AS h
             INNER JOIN dbo.Controllers AS c
                 ON c.ControllerID = h.ControllerID
@@ -949,6 +432,7 @@ def demo():
         if request.form.get("action") == "upload_L5X":
             try:
                 from uuid import uuid4
+                staged_path = None
 
                 uploaded_file = request.files.get("L5X_file")
                 
@@ -969,7 +453,7 @@ def demo():
                 if Path(uploaded_file.filename).suffix.lower() != ".l5x":
                     raise ValueError("Only L5X files are supported.")
 
-                staging_folder = Path(r"C:\TRACE_Backups\Staging")
+                staging_folder = BACKUP_ROOT / "Staging"
                 staging_folder.mkdir(parents=True, exist_ok=True)
 
                 staged_path = staging_folder / f"{uuid4().hex}.L5X"
@@ -978,10 +462,7 @@ def demo():
                     uploaded_file.save(output)
 
                 # STEP 337: GET CONTROLLER NAME FROM THE SELECTED PLC.
-                controller_name = selected_controller.get(
-                    "ControllerName",
-                    selected_controller.get("Name", f"Controller_{controller_id}")
-                )
+                controller_name = selected_controller["friendly_name"]
 
                 # STEP 341: LOAD THE EXISTING TRACE BACKUP NAMING FUNCTIONS.
                 import importlib.util
@@ -1001,7 +482,7 @@ def demo():
                 )
 
                 # STEP 345: USE THE REGISTERED FRIENDLY NAME AS THE BACKUP FOLDER.
-                controller_folder = Path(r"C:\TRACE_Backups") / controller_name
+                controller_folder = BACKUP_ROOT / controller_name
 
                 archive_folder = controller_folder / "Backup"
                 archive_folder.mkdir(parents=True, exist_ok=True)
@@ -1203,6 +684,9 @@ def demo():
                                     
             except Exception as error:
                 upload_error = str(error)
+            finally:
+                if staged_path is not None:
+                    staged_path.unlink(missing_ok=True)
         # STEP 354B: PROCESS THE USER'S BACKUP REVIEW DECISION.
         # Retain moves the pending file into the accepted Backup folder.
         # Discard deletes only the pending file, never the baseline.
@@ -1226,7 +710,7 @@ def demo():
                         raise ValueError("Invalid pending backup filename.")
 
                     controller_folder = (
-                        Path(r"C:\TRACE_Backups") / controller_name
+                        BACKUP_ROOT / controller_name
                     )
 
                     pending_path = (
@@ -1240,7 +724,7 @@ def demo():
 
                     for controller in demo_controllers:
                         folder = (
-                            Path(r"C:\TRACE_Backups")
+                            BACKUP_ROOT
                             / controller["ControllerName"]
                         )
 
@@ -1257,6 +741,10 @@ def demo():
 
                     controller_name, pending_path = candidates[0]
                     controller_folder = pending_path.parent.parent
+
+                expected_pending = (controller_folder / "Pending").resolve()
+                if pending_path.resolve().parent != expected_pending:
+                    raise ValueError("Backup is outside the Pending directory.")
 
                 if not pending_path.is_file():
                     raise FileNotFoundError(
@@ -1312,7 +800,7 @@ def demo():
                 )
 
                 backup_root = (
-                    Path(r"C:\TRACE_Backups")
+                    BACKUP_ROOT
                     / friendly_name
                 )
 
@@ -1358,72 +846,6 @@ def demo():
         rung_changes=rung_changes
     )
 
-# SECTION 3: EVENT HISTORY PAGE.
-# Retrieve recorded hardware events from SQL Server.
-# Preserve all events, including resolved warnings.
-
-@app.route("/history")
-def history():
-
-    # STEP 1: CONNECT TO THE TRACE DATABASE.
-    connection = pyodbc.connect(
-        connection_string,
-        timeout=5
-    )
-
-    try:
-        cursor = connection.cursor()
-
-        # STEP 2: RETRIEVE HARDWARE EVENT HISTORY.
-        # Join each event to its permanent equipment record.
-        # Do not retrieve or display processor serial numbers.
-
-        cursor.execute("""
-            SELECT
-                e.EventID,
-                e.ControllerID,
-                c.ControllerName,
-                e.EventType,
-                e.DetectedIPAddress,
-                e.EventStatus,
-                e.DetectedAt,
-                e.ResolvedAt,
-                e.ResolvedBy,
-                e.ResolutionNotes
-            FROM dbo.HardwareEvents AS e
-            INNER JOIN dbo.Controllers AS c
-                ON e.ControllerID = c.ControllerID
-            ORDER BY e.DetectedAt DESC, e.EventID DESC
-        """)
-
-        # STEP 3: CONVERT SQL RESULTS TO DICTIONARIES.
-        columns = [
-            column[0]
-            for column in cursor.description
-        ]
-
-        hardware_events = [
-            dict(zip(columns, row))
-            for row in cursor.fetchall()
-        ]
-
-    finally:
-        # STEP 4: CLOSE THE DATABASE CONNECTION.
-        connection.close()
-
-    # STEP 5: DISPLAY THE EVENT HISTORY.
-    return render_template(
-        "history.html",
-        hardware_events=hardware_events
-    )
-
-
-
-# SECTION 4: SYSTEM SETTINGS PAGE
-@app.route("/settings")
-def settings():
-    return render_template("settings.html")
-
 # STEP 8: INITIALIZE SQL SERVER BEFORE STARTING TRACE.
 # STEP 8: INITIALIZE SQL SERVER BEFORE STARTING TRACE.
 if __name__ == "__main__":
@@ -1436,3 +858,14 @@ if __name__ == "__main__":
 
     # STEP 8B: START THE WEB INTERFACE.
     app.run(debug=True, host="127.0.0.1", port=5000)
+
+
+
+
+
+
+
+
+
+
+

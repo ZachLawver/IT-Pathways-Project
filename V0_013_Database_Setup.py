@@ -1,4 +1,4 @@
-
+﻿
 # ==========================================================
 # TRACE - AUTOMATIC DATABASE INSTALLER - VERSION 0.013
 # Creates the database and initial tables when missing.
@@ -6,13 +6,12 @@
 # ==========================================================
 
 # STEP 1: IMPORT REQUIRED LIBRARIES.
-from multiprocessing import connection
-
 import pyodbc
+import os
 
 
 # STEP 2: CONFIGURE SQL SERVER.
-SERVER = r"localhost\SQLEXPRESS"
+SERVER = os.environ.get("TRACE_SQL_SERVER", r"localhost\SQLEXPRESS")
 DATABASE = "TRACE"
 
 def connection_string(database):
@@ -44,7 +43,7 @@ def create_database():
         if cursor.fetchone():
             print("TRACE database already exists.")
         else:
-            cursor.execute("CREATE DATABASE [TRACE]")
+            cursor.execute(f"CREATE DATABASE [{DATABASE}]")
             print("TRACE database created.")
     finally:
         connection.close()
@@ -66,11 +65,18 @@ def create_tables():
             BEGIN
                 CREATE TABLE dbo.Controllers (
                     ControllerID INT IDENTITY(1,1) PRIMARY KEY,
-                    ControllerName NVARCHAR(255) NOT NULL UNIQUE,
-                    IPAddress NVARCHAR(45) NULL,
+                    ControllerName NVARCHAR(100) NOT NULL,
+                    IPAddress VARCHAR(45) NULL,
                     PLCModel NVARCHAR(100) NULL,
+                    CreatedAt DATETIME2 NOT NULL
+                        DEFAULT SYSDATETIME(),
                     ControllerFamily NVARCHAR(100) NULL,
-                    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+                    FirmwareMajor INT NULL,
+                    FirmwareMinor INT NULL,
+                    SerialNumber NVARCHAR(100) NULL,
+                    LastSeen DATETIME2 NULL,
+                    CommunicationStatus NVARCHAR(30) NOT NULL
+                        DEFAULT 'Not checked'
                 )
             END
         """)
@@ -83,11 +89,54 @@ def create_tables():
                     BackupID INT IDENTITY(1,1) PRIMARY KEY,
                     ControllerID INT NOT NULL,
                     FilePath NVARCHAR(1000) NOT NULL,
-                    FileHash NVARCHAR(128) NULL,
-                    CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    FileHash CHAR(64) NULL,
+                    BackupTime DATETIME2 NOT NULL
+                        DEFAULT SYSDATETIME(),
+                    BackupStatus NVARCHAR(30) NOT NULL
+                        DEFAULT 'Pending',
+                    BackupSource NVARCHAR(50) NOT NULL
+                        DEFAULT 'ManualUpload',
+                    OriginalFileName NVARCHAR(255) NULL,
+                    FileType NVARCHAR(10) NULL,
+                    ReviewedAt DATETIME2 NULL,
+                    ReviewedBy NVARCHAR(150) NULL,
+                    ReviewNotes NVARCHAR(1000) NULL,
+
                     CONSTRAINT FK_Backups_Controllers
                         FOREIGN KEY (ControllerID)
                         REFERENCES dbo.Controllers(ControllerID)
+                )
+            END
+        """)
+
+        cursor.execute("""
+            IF OBJECT_ID(N'dbo.BackupComparisons', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.BackupComparisons (
+                    ComparisonID INT IDENTITY(1,1) PRIMARY KEY,
+                    ControllerID INT NOT NULL,
+                    BackupID INT NULL,
+                    BackupSource NVARCHAR(50) NOT NULL,
+                    ComparisonResult NVARCHAR(30) NOT NULL,
+                    RetentionDecision NVARCHAR(20) NOT NULL,
+                    TotalChanges INT NULL,
+                    FullProjectVerified BIT NOT NULL
+                        DEFAULT 0,
+                    AuditRequired BIT NOT NULL
+                        DEFAULT 0,
+                    PossibleMonitorMiss BIT NOT NULL
+                        DEFAULT 0,
+                    ComparedAt DATETIME2 NOT NULL
+                        DEFAULT SYSUTCDATETIME(),
+                    ComparisonNotes NVARCHAR(2000) NULL,
+
+                    CONSTRAINT FK_BackupComparisons_Controller
+                        FOREIGN KEY (ControllerID)
+                        REFERENCES dbo.Controllers(ControllerID),
+
+                    CONSTRAINT FK_BackupComparisons_Backup
+                        FOREIGN KEY (BackupID)
+                        REFERENCES dbo.Backups(BackupID)
                 )
             END
         """)
@@ -98,15 +147,21 @@ def create_tables():
             BEGIN
                 CREATE TABLE dbo.RungChanges (
                     ChangeID INT IDENTITY(1,1) PRIMARY KEY,
-                    ControllerID INT NOT NULL,
-                    RungNumber INT NULL,
-                    ChangeType NVARCHAR(50) NULL,
+                    BackupID INT NOT NULL,
+                    ProgramName NVARCHAR(255) NOT NULL,
+                    RoutineName NVARCHAR(255) NOT NULL,
+                    RungNumber NVARCHAR(50) NOT NULL,
+                    ChangeType NVARCHAR(30) NOT NULL,
                     OldLogic NVARCHAR(MAX) NULL,
                     NewLogic NVARCHAR(MAX) NULL,
-                    DetectedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-                    CONSTRAINT FK_RungChanges_Controllers
-                        FOREIGN KEY (ControllerID)
-                        REFERENCES dbo.Controllers(ControllerID)
+                    VerificationStatus NVARCHAR(30) NOT NULL
+                        DEFAULT 'VERIFIED',
+                    DetectedAt DATETIME2 NOT NULL
+                        DEFAULT SYSDATETIME(),
+
+                    CONSTRAINT FK_RungChanges_Backups
+                        FOREIGN KEY (BackupID)
+                        REFERENCES dbo.Backups(BackupID)
                 )
             END
         """)
@@ -161,33 +216,20 @@ def create_tables():
             BEGIN
                 CREATE TABLE dbo.ControllerHardware (
                     HardwareID INT IDENTITY(1,1) PRIMARY KEY,
-
                     ControllerID INT NOT NULL,
-
                     SerialNumber NVARCHAR(100) NOT NULL,
-
                     PLCModel NVARCHAR(100) NULL,
-
                     FirmwareMajor INT NULL,
-
                     FirmwareMinor INT NULL,
-
                     InstalledAt DATETIME2 NOT NULL
                         DEFAULT SYSUTCDATETIME(),
-
                     RemovedAt DATETIME2 NULL,
-
                     LastSeen DATETIME2 NULL,
+                    InitialAuditValue NVARCHAR(255) NULL,
 
                     CONSTRAINT FK_ControllerHardware_Controllers
                         FOREIGN KEY (ControllerID)
-                        REFERENCES dbo.Controllers(ControllerID),
-
-                    CONSTRAINT CK_ControllerHardware_Dates
-                        CHECK (
-                            RemovedAt IS NULL
-                            OR RemovedAt >= InstalledAt
-                        )
+                        REFERENCES dbo.Controllers(ControllerID)
                 )
             END
         """)
@@ -241,24 +283,17 @@ def create_tables():
             BEGIN
                 CREATE TABLE dbo.HardwareEvents (
                     EventID INT IDENTITY(1,1) PRIMARY KEY,
-
                     ControllerID INT NOT NULL,
-
                     EventType NVARCHAR(50) NOT NULL,
-
                     DetectedSerialNumber NVARCHAR(100) NULL,
-
                     DetectedIPAddress NVARCHAR(45) NULL,
-
                     EventStatus NVARCHAR(30) NOT NULL
                         DEFAULT 'Pending',
-
                     DetectedAt DATETIME2 NOT NULL
                         DEFAULT SYSUTCDATETIME(),
-
                     ResolvedAt DATETIME2 NULL,
-
                     ResolutionNotes NVARCHAR(1000) NULL,
+                    ResolvedBy NVARCHAR(150) NULL,
 
                     CONSTRAINT FK_HardwareEvents_Controllers
                         FOREIGN KEY (ControllerID)
@@ -312,3 +347,6 @@ if __name__ == "__main__":
     except pyodbc.Error as error:
         print(f"TRACE database setup failed: {error}")
         raise SystemExit(1)
+
+
+

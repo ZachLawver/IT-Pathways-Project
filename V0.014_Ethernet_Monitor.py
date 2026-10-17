@@ -1,4 +1,4 @@
-
+﻿
 # ==========================================================
 # TRACE - ETHERNET MONITOR - VERSION 0.014
 # Automatic PLC identification and SQL registration.
@@ -8,6 +8,7 @@
 
 # STEP 1: IMPORT REQUIRED LIBRARIES.
 from datetime import datetime, timezone
+import os
 import ipaddress
 import uuid
 
@@ -16,7 +17,7 @@ import pyodbc
 
 SQL_CONNECTION = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
-    r"SERVER=localhost\SQLEXPRESS;"
+    f"SERVER={os.environ.get('TRACE_SQL_SERVER', r'localhost\SQLEXPRESS')};"
     "DATABASE=TRACE;"
     "Trusted_Connection=yes;"
     "Encrypt=yes;"
@@ -710,3 +711,5 @@ def main():
 # STEP 6: EXECUTE THE MONITOR.
 if __name__ == "__main__":
     main()
+
+

@@ -1,20 +1,17 @@
-# Python virtual environment
+﻿# Python environment and cache
 .venv/
-
-# Python-generated cache files __pycache__/
+__pycache__/
 *.pyc
 
-# Temporary PLC acquisition files/
+# Temporary and local backup files
 temp/
-
-# Local timestamped backup files backups/
 backups/
 
 # Simulated PLC source files
 old_plc.txt
 new_plc.txt
 
-# Ignore Proprietary PLC Files
+# Proprietary PLC project files
 *.acd
 *.l5x
 *.rss

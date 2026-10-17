@@ -1,4 +1,4 @@
-# TRACE Development Workstation Setup
+﻿# TRACE Development Workstation Setup
 # Run in PowerShell from the folder containing this script:
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1
 # Optional: -SqlServer '.\SQLEXPRESS' -Database 'TRACE' -CheckSqlConnection
@@ -6,13 +6,14 @@
 
 [CmdletBinding()]
 param(
-    [string]$SqlServer = '.\SQLEXPRESS',
+    [string]$SqlServer = 'localhost\SQLEXPRESS',
     [string]$Database = 'TRACE',
     [switch]$CheckSqlConnection
 )
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
+$env:TRACE_SQL_SERVER = $SqlServer
 
 function Show-Step([string]$Message) { Write-Host "`n==> $Message" -ForegroundColor Cyan }
 function Show-Warn([string]$Message) { Write-Warning $Message }
@@ -66,7 +67,7 @@ Show-Step 'Checking SQL Server connectivity prerequisites'
 $drivers = @()
 try {
     $drivers = @(Get-OdbcDriver -ErrorAction Stop |
-        Where-Object { $_.Name -match '^ODBC Driver (17|18) for SQL Server$' } |
+        Where-Object { $_.Name -match '^ODBC Driver 18 for SQL Server$' } |
         Select-Object -ExpandProperty Name -Unique)
 } catch {
     Show-Warn "Unable to query installed ODBC drivers: $($_.Exception.Message)"
@@ -74,7 +75,7 @@ try {
 if ($drivers.Count -gt 0) {
     Write-Host "SQL Server ODBC driver(s) detected: $($drivers -join ', ')" -ForegroundColor Green
 } else {
-    Show-Warn 'Microsoft ODBC Driver 17 or 18 for SQL Server was not detected. Install a supported Microsoft SQL Server ODBC driver if TRACE requires pyodbc.'
+    Show-Warn 'Microsoft ODBC Driver 18 for SQL Server was not detected. Install Microsoft ODBC Driver 18 for SQL Server before running TRACE.'
 }
 
 if ($CheckSqlConnection) {
@@ -101,3 +102,7 @@ Write-Host 'Python environment: .venv\Scripts\python.exe'
 Write-Host 'Activate with: .\.venv\Scripts\Activate.ps1'
 Write-Host 'Or launch directly with: .\.venv\Scripts\python.exe .\V0.011_Web.py'
 Write-Host 'Note: SQL Server Express, the TRACE database, backup files, and PLC network access must be configured separately.'
+
+
+
+

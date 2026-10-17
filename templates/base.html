@@ -2,10 +2,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- STEP 532: SHARED TRACE APPLICATION LAYOUT -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}TRACE{% endblock %}</title>
+    <title>{% block title %}TRACE Demonstration{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
@@ -13,7 +12,7 @@
 <div class="trace-shell">
 
     <aside class="sidebar">
-        <!-- STEP 535: DISPLAY THE OFFICIAL TRACE LOGO -->
+
         <div class="trace-brand">
             <img
                 src="{{ url_for('static', filename='TRACE Industrial Neon Metal Plate.png') }}"
@@ -23,32 +22,21 @@
         </div>
 
         <nav class="trace-navigation" aria-label="Main navigation">
-            {% set navigation = [
-                ('/', 'Dashboard', '⌂'),
-                ('/demo', 'Demo', '▣'),
-                ('/controllers', 'Controllers', '⚙'),
-                ('/backups', 'Backups', '▤'),
-                ('/audit', 'Audit & Compare', '◫'),
-                ('/history', 'Event History', '▥'),
-                ('/settings', 'Settings', '☷')
-            ] %}
-
-            {% for path, label, symbol in navigation %}
-                <a href="{{ path }}"
-                   class="trace-nav-link {% if request.path == path %}active{% endif %}">
-                    <span class="trace-nav-icon" aria-hidden="true">{{ symbol }}</span>
-                    <span>{{ label }}</span>
-                </a>
-            {% endfor %}
+            <a href="{{ url_for('demo') }}" class="trace-nav-link active">
+                <span class="trace-nav-icon" aria-hidden="true">▣</span>
+                <span>Demonstration</span>
+            </a>
         </nav>
 
         <div class="trace-sidebar-footer">
             <span class="trace-sidebar-pulse"></span>
             TRACE VERSION MANAGEMENT
         </div>
+
     </aside>
 
     <div class="trace-workspace">
+
         <div class="trace-topbar">
             <div class="trace-topbar-title">
                 INDUSTRIAL CONTROL SYSTEM MANAGEMENT
@@ -63,9 +51,9 @@
         <main class="main-content">
             {% block content %}{% endblock %}
         </main>
+
     </div>
 
 </div>
 </body>
 </html>
-
