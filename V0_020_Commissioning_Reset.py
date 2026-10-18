@@ -1,10 +1,10 @@
+﻿# STEP 1: Import filesystem and SQL connectivity libraries.
 from pathlib import Path
 import pyodbc
 
 
-# TRACE COMMISSIONING RESET
-# This module must never communicate with a physical PLC.
 
+# STEP 2: Define the operational SQL tables cleared during commissioning reset.
 RESET_TABLES = (
     "BackupComparisons",
     "RungChanges",
@@ -15,12 +15,14 @@ RESET_TABLES = (
 )
 
 
+# STEP 3: Validate reset targets without deleting records or files.
 def validate_reset_targets(connection_string, backup_root):
     """
     Validate commissioning reset targets.
     READ-ONLY: Does not delete SQL records or files.
     """
 
+    # STEP 4: Resolve the backup directory to its absolute filesystem path.
     backup_root = Path(backup_root).resolve()
 
     if backup_root != Path(r"C:\TRACE_Backups"):
@@ -33,6 +35,7 @@ def validate_reset_targets(connection_string, backup_root):
             f"TRACE backup directory does not exist: {backup_root}"
         )
 
+    # STEP 5: Connect to SQL Server and verify the TRACE database.
     connection = pyodbc.connect(
         connection_string,
         timeout=5
@@ -49,6 +52,7 @@ def validate_reset_targets(connection_string, backup_root):
                 f"Unexpected SQL database: {database_name}"
             )
 
+        # STEP 6: Count existing operational records before allowing reset.
         counts = {}
 
         for table in RESET_TABLES:
@@ -67,6 +71,7 @@ def validate_reset_targets(connection_string, backup_root):
         connection.close()
 
 
+# STEP 7: Begin the destructive reset only after explicit confirmation.
 def execute_commissioning_reset(connection_string, backup_root):
     """
     Reset TRACE's operational SQL records and backup storage.
@@ -75,12 +80,11 @@ def execute_commissioning_reset(connection_string, backup_root):
     """
     import shutil
 
-    # Validate both targets before modifying anything.
     validate_reset_targets(connection_string, backup_root)
 
     backup_root = Path(backup_root).resolve()
 
-    # Reject unexpected filesystem entries before starting.
+    # STEP 8: Reject symbolic links before starting destructive operations.
     for item in backup_root.iterdir():
         if item.is_symlink():
             raise ValueError(
@@ -100,11 +104,10 @@ def execute_commissioning_reset(connection_string, backup_root):
         if cursor.fetchone()[0] != "TRACE":
             raise ValueError("Database changed before reset.")
 
-        # SQL deletion order preserves foreign-key dependencies.
+        # STEP 9: Delete operational SQL records in dependency order.
         for table in RESET_TABLES:
             cursor.execute(f"DELETE FROM dbo.{table}")
 
-        # Verify every operational table is empty before commit.
         for table in RESET_TABLES:
             cursor.execute(f"SELECT COUNT(*) FROM dbo.{table}")
             if cursor.fetchone()[0] != 0:
@@ -112,6 +115,7 @@ def execute_commissioning_reset(connection_string, backup_root):
                     f"SQL reset verification failed: {table}"
                 )
 
+        # STEP 10: Commit verified SQL deletions or roll back on failure.
         connection.commit()
 
     except Exception:
@@ -121,8 +125,6 @@ def execute_commissioning_reset(connection_string, backup_root):
     finally:
         connection.close()
 
-    # SQL is committed before filesystem cleanup.
-    # A filesystem error must be reported as an incomplete reset.
     try:
         for item in backup_root.iterdir():
             if item.is_symlink():
@@ -131,6 +133,7 @@ def execute_commissioning_reset(connection_string, backup_root):
                 )
 
             if item.is_dir():
+                # STEP 11: Remove stored backup files after the SQL transaction succeeds.
                 shutil.rmtree(item)
             else:
                 item.unlink()
@@ -141,7 +144,7 @@ def execute_commissioning_reset(connection_string, backup_root):
             f"Manual inspection required: {error}"
         ) from error
 
-    # Final verification.
+    # STEP 12: Verify SQL tables and backup storage are empty after reset.
     result = validate_reset_targets(
         connection_string,
         backup_root

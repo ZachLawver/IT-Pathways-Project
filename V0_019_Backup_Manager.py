@@ -1,10 +1,10 @@
 
 """
 TRACE V0.019 - Backup Manager
-Step 1: Backup retention decision engine.
+Backup retention, file staging, project comparison, and SQL registration.
 
-This module does not yet acquire, compare, save,
-or delete actual PLC program files.
+Includes file-handling and comparison helpers; some workflows
+require complete verification before allowing deletion.
 """
 import hashlib
 from pathlib import Path
@@ -18,7 +18,7 @@ import pyodbc
 import os
 import re
 
-# STEP 43: CONFIGURE TRACE BACKUP STORAGE.
+# STEP 1: CONFIGURE TRACE BACKUP STORAGE.
 # Defaults to local storage during development.
 # Can later be overridden with a server UNC path.
 
@@ -26,7 +26,7 @@ BACKUP_STORAGE_ROOT = Path(
     os.environ.get("TRACE_BACKUP_ROOT", r"C:\TRACE_Backups")
 )
 
-# STEP 1: DEFINE ALL THREE BACKUP TRIGGERS.
+# STEP 2: DEFINE BACKUP TRIGGERS.
 
 class BackupTrigger(str, Enum):
     SCHEDULED = "Scheduled"
@@ -34,7 +34,7 @@ class BackupTrigger(str, Enum):
     MANUAL = "Manual"
 
 
-# STEP 2: DEFINE POSSIBLE FULL COMPARISON RESULTS.
+# STEP 3: DEFINE COMPARISON RESULTS.
 
 class ComparisonResult(str, Enum):
     NO_CHANGES = "NoChanges"
@@ -43,7 +43,7 @@ class ComparisonResult(str, Enum):
     FAILED = "Failed"
 
 
-# STEP 3: DEFINE BACKUP RETENTION DECISIONS.
+# STEP 4: DEFINE RETENTION DECISIONS.
 
 class BackupDecision(str, Enum):
     RETAIN = "Retain"
@@ -51,7 +51,7 @@ class BackupDecision(str, Enum):
     HOLD = "Hold"
 
 
-# STEP 4: DEFINE THE RESULT RETURNED BY THE ENGINE.
+# STEP 5: DEFINE BACKUP EVALUATION DATA.
 
 @dataclass(frozen=True)
 class BackupEvaluation:
@@ -63,7 +63,7 @@ class BackupEvaluation:
 
 
 
-# STEP 5: EVALUATE BACKUP RETENTION.
+# STEP 6: EVALUATE BACKUP RETENTION.
 # Only verified no-change monitoring captures
 # may be automatically discarded.
 
@@ -72,7 +72,7 @@ def evaluate_backup(trigger, comparison):
     trigger = BackupTrigger(trigger)
     comparison = ComparisonResult(comparison)
 
-    # STEP 5A: Scheduled and manual backups are
+    # STEP 7: RETAIN SCHEDULED AND MANUAL CAPTURES.
     # always retained, even when comparison fails.
     if trigger in (
         BackupTrigger.SCHEDULED,
@@ -88,7 +88,7 @@ def evaluate_backup(trigger, comparison):
             reason="Protected recovery backup; always retain.",
         )
 
-    # STEP 5B: Unresolved monitoring comparisons
+    # STEP 8: HOLD UNRESOLVED MONITORING CAPTURES.
     # must preserve the captured file.
     if comparison in (
         ComparisonResult.INCOMPLETE,
@@ -102,7 +102,7 @@ def evaluate_backup(trigger, comparison):
             reason="Comparison unresolved; hold for investigation.",
         )
 
-    # STEP 5C: Detected changes must be archived.
+    # STEP 9: RETAIN CHANGED MONITORING CAPTURES.
     if comparison == ComparisonResult.CHANGES_DETECTED:
         return BackupEvaluation(
             trigger=trigger,
@@ -112,7 +112,7 @@ def evaluate_backup(trigger, comparison):
             reason="Changes detected; archive and generate audit event.",
         )
 
-    # STEP 5D: Only verified no-change monitoring
+    # STEP 10: DISCARD VERIFIED UNCHANGED MONITORING CAPTURES.
     # captures are eligible for deletion.
     return BackupEvaluation(
         trigger=trigger,
@@ -123,7 +123,7 @@ def evaluate_backup(trigger, comparison):
     )
 
 
-# STEP 7: CALCULATE A FILE'S SHA-256 HASH.
+# STEP 11: CALCULATE SHA-256 FILE HASH.
 # Read in chunks so large ACD files do not need
 # to be loaded entirely into memory.
 
@@ -139,7 +139,7 @@ def calculate_file_hash(file_path):
     return sha256.hexdigest()
 
 
-# STEP 8: COMPARE TWO FILES.
+# STEP 12: COMPARE BINARY FILE HASHES.
 # This checks whether their binary contents are identical.
 # It does NOT establish whether PLC logic has changed.
 
@@ -155,8 +155,8 @@ def compare_file_hashes(current_file, baseline_file):
     }
 
 
-# STEP 10: CREATE THE BACKUP STORAGE DIRECTORIES.
-# Archive and hold locations are kept separate.
+# STEP 13: INITIALIZE STORAGE DIRECTORIES.
+# Creates shared Staging, Archive, and Hold directories in this version.
 
 def initialize_backup_storage(storage_root):
 
@@ -176,7 +176,7 @@ def initialize_backup_storage(storage_root):
     }
 
 
-# STEP 11: COPY A CAPTURE INTO TEMPORARY STORAGE.
+# STEP 14: STAGE AND VERIFY A CAPTURE.
 # The source file is never moved or deleted.
 
 def stage_backup(source_file, storage_root):
@@ -200,16 +200,16 @@ def stage_backup(source_file, storage_root):
 
     return staged_path
 
-# STEP 160: GET THE USER-REGISTERED CONTROLLER NAME.
+# STEP 15: LOOK UP REGISTERED CONTROLLER NAME.
 # Read-only SQL lookup. Does not modify controller records.
 
 def get_backup_controller_name(controller_id):
     """Compatibility wrapper for the canonical controller-name lookup."""
     return get_controller_name(controller_id)
 
-# STEP 162: GENERATE READABLE BACKUP FILENAMES.
+# STEP 16: GENERATE CONTROLLER BACKUP FILENAME.
 # Uses the controller name registered in TRACE.
-# Never overwrites an existing backup.
+# Uses the controller name registered in TRACE.
 
 def generate_backup_filename(controller_id, storage_root, file_extension):
 
@@ -232,7 +232,7 @@ def generate_backup_filename(controller_id, storage_root, file_extension):
 
     root = Path(storage_root)
 
-    # Check both locations to avoid duplicate filenames.
+# Checks Backup, Hold, and Pending for filename collisions.
     existing_names = set()
 
     for folder_name in ("Backup", "Hold", "Pending"):
@@ -256,12 +256,12 @@ def generate_backup_filename(controller_id, storage_root, file_extension):
 
         sequence += 1
 
-# STEP 12: APPLY A VERIFIED RETENTION DECISION.
-# This function does not perform the comparison itself.
-# Only pass a result from the full comparison engine.
+# STEP 17: PREPARE VERIFIED FILE COPY.
+# File copying is separate from the retention decision.
+# Only call this helper when the caller has selected a destination.
 
-# STEP 159: REQUIRE THE REGISTERED CONTROLLER ID.
-# Used to retrieve the user-defined controller name from TRACE.
+# STEP 18: COPY WITHOUT OVERWRITING AND VERIFY HASH.
+# The copy helper receives explicit source and destination paths.
 
 def copy_verified_backup(source, destination):
     """Copy and verify a backup without overwriting existing files."""
@@ -303,7 +303,7 @@ def finalize_backup(staged_file, storage_root, evaluation, controller_id):
     if staged.resolve().parent != folders["Staging"].resolve():
         raise ValueError("Backup is not in the staging directory.")
 
-    # STEP 71: BLOCK AUTOMATIC BACKUP DELETION.
+    # STEP 19: BLOCK AUTOMATIC DELETION IN FINALIZATION.
     # A matching file hash or partial L5X comparison does not
     # establish that the complete PLC program is unchanged.
     #
@@ -321,7 +321,7 @@ def finalize_backup(staged_file, storage_root, evaluation, controller_id):
     else:
         destination_folder = folders["Archive"]
 
-    # STEP 164: NAME BACKUPS USING THE REGISTERED CONTROLLER.
+    # STEP 20: GENERATE FINALIZED BACKUP FILENAME.
     # Format: ControllerName_YYYY-MM-DD_001.l5x
 
     filename = generate_backup_filename(
@@ -346,7 +346,7 @@ def finalize_backup(staged_file, storage_root, evaluation, controller_id):
     return destination
 
 
-# STEP 14: EXTRACT LADDER RUNG LOGIC FROM AN L5X FILE.
+# STEP 21: EXTRACT LADDER RUNG LOGIC FROM AN L5X FILE.
 # This reads the text of each rung and identifies its
 # location by program, routine, and rung number.
 
@@ -385,7 +385,7 @@ def extract_l5x_rungs(file_path):
     return rungs
 
 
-# STEP 15: COMPARE TWO L5X LADDER LOGIC SNAPSHOTS.
+# STEP 22: COMPARE TWO L5X LADDER LOGIC SNAPSHOTS.
 # Detect added, removed, and modified rungs.
 
 def compare_l5x_rungs(current_file, baseline_file):
@@ -426,7 +426,7 @@ def compare_l5x_rungs(current_file, baseline_file):
 
 
 
-# STEP 17: EXTRACT SELECTED TAG DEFINITIONS.
+# STEP 23: EXTRACT SELECTED TAG DEFINITIONS.
 # Compare tag structure without comparing live values,
 # preset values, descriptions, or exported data.
 
@@ -487,7 +487,7 @@ def extract_l5x_tags(file_path):
 
     return tags
 
-# STEP 18: EXTRACT STRUCTURED TEXT AND FUNCTION BLOCK ROUTINES.
+# STEP 24: EXTRACT STRUCTURED TEXT AND FUNCTION BLOCK ROUTINES.
 # Compare their exported XML content.
 # This is a structural comparison, not a semantic analysis.
 
@@ -524,7 +524,7 @@ def extract_l5x_other_routines(file_path):
     return routines
 
 
-# STEP 19: COMPARE TWO COLLECTIONS OF PROJECT COMPONENTS.
+# STEP 25: COMPARE TWO COLLECTIONS OF PROJECT COMPONENTS.
 # Report added, removed, and modified components.
 
 def compare_component_maps(current, baseline, category):
@@ -556,7 +556,7 @@ def compare_component_maps(current, baseline, category):
 
 
 
-# STEP 20: RUN THE EXPANDED L5X PROJECT COMPARISON.
+# STEP 26: RUN THE EXPANDED L5X PROJECT COMPARISON.
 # Combine program logic, tag definitions, and configuration.
 # FullProjectVerified remains False until export coverage
 # and comparison completeness are validated.
@@ -603,7 +603,7 @@ def compare_l5x_project(current_file, baseline_file):
         "FullProjectVerified": False,
     }
 
-# STEP 23: NORMALIZE CONFIGURATION XML.
+# STEP 27: NORMALIZE CONFIGURATION XML.
 # Remove descriptive text and exported tag data values.
 # Preserve other configuration attributes and elements.
 #
@@ -632,7 +632,7 @@ def normalize_configuration_xml(element):
     )
 
 
-# STEP 24: EXTRACT CONTROLLER CONFIGURATION.
+# STEP 28: EXTRACT CONTROLLER CONFIGURATION.
 # Compare controller attributes, excluding identity fields
 # and volatile metadata that are not program configuration.
 
@@ -657,7 +657,7 @@ def extract_l5x_controller_config(file_path):
     }
 
 
-# STEP 25: EXTRACT MODULE AND CHANNEL CONFIGURATION.
+# STEP 29: EXTRACT MODULE AND CHANNEL CONFIGURATION.
 # Capture complete exported module subtrees, excluding
 # descriptive metadata and Data elements.
 #
@@ -689,7 +689,7 @@ def extract_l5x_modules(file_path):
     return modules
 
 
-# STEP 26: EXTRACT TASK CONFIGURATION.
+# STEP 30: EXTRACT TASK CONFIGURATION.
 # Compare task attributes and task-to-program scheduling.
 # Program logic is compared separately.
 
@@ -718,7 +718,7 @@ def extract_l5x_tasks(file_path):
     return tasks
 
 
-# STEP 27: COMPARE CONTROLLER, MODULE, AND TASK CONFIGURATION.
+# STEP 31: COMPARE CONTROLLER, MODULE, AND TASK CONFIGURATION.
 
 def compare_l5x_configuration(current_file, baseline_file):
 
@@ -755,7 +755,7 @@ def compare_l5x_configuration(current_file, baseline_file):
     }
 
 
-# STEP 29: TRANSLATE PROJECT COMPARISON INTO
+# STEP 32: TRANSLATE PROJECT COMPARISON INTO
 # A BACKUP RETENTION DECISION.
 #
 # A zero-change result is NOT sufficient to delete
@@ -766,7 +766,7 @@ def evaluate_project_backup(trigger, comparison_report):
 
     trigger = BackupTrigger(trigger)
 
-    # STEP 29A: Validate the comparison report.
+    # Validate the comparison report before using its results.
     if not isinstance(comparison_report, dict):
         result = ComparisonResult.FAILED
 
@@ -778,22 +778,22 @@ def evaluate_project_backup(trigger, comparison_report):
     ):
         result = ComparisonResult.FAILED
 
-    # STEP 29B: Actual detected changes take priority.
+    # Actual detected changes take priority over verification status.
     elif comparison_report["TotalChanges"] > 0:
         result = ComparisonResult.CHANGES_DETECTED
 
-    # STEP 29C: No changes with verified complete coverage.
+    # A verified complete comparison can report no changes.
     elif comparison_report["FullProjectVerified"] is True:
         result = ComparisonResult.NO_CHANGES
 
-    # STEP 29D: No changes, but comparison is incomplete.
+    # Otherwise, comparison coverage is incomplete.
     else:
         result = ComparisonResult.INCOMPLETE
 
     return evaluate_backup(trigger, result)
 
 
-# STEP 34: CONNECT TO THE TRACE SQL SERVER DATABASE.
+# STEP 33: CONNECT TO THE TRACE SQL SERVER DATABASE.
 # Uses Windows authentication and the existing
 # local SQL Server Express instance.
 
@@ -814,11 +814,11 @@ def connect_trace_database():
     )
 
 
-# STEP 35: REGISTER AN ARCHIVED BACKUP.
+# STEP 34: REGISTER A BACKUP FILE IN SQL.
 # This function records metadata for an existing file.
 # It does not acquire or copy the PLC project.
 
-# STEP 175: SUPPORT PROJECT ASSOCIATION IN STANDARD BACKUPS.
+# The optional ProjectID associates this backup with a project.
 
 def register_backup(
     controller_id,
@@ -841,7 +841,7 @@ def register_backup(
     try:
         cursor = connection.cursor()
 
-                # STEP 175A: REGISTER BACKUP WITH OPTIONAL PROJECT ID.
+                # Insert the backup record with its optional project association.
         # SQL verifies that ProjectID belongs to ControllerID.
 
         cursor.execute(
@@ -875,7 +875,7 @@ def register_backup(
         connection.close()
 
 
-# STEP 36: RECORD A BACKUP COMPARISON.
+# STEP 35: RECORD A BACKUP COMPARISON.
 # A comparison record may exist without a BackupID
 # when a monitoring capture was discarded.
 
@@ -939,7 +939,7 @@ def register_backup_comparison(
         connection.close()
 
 
-# STEP 37: RETRIEVE COMPARISON HISTORY.
+# STEP 36: RETRIEVE COMPARISON HISTORY.
 # Results are ordered newest first.
 
 def get_backup_comparison_history(controller_id):
@@ -982,7 +982,7 @@ def get_backup_comparison_history(controller_id):
     finally:
         connection.close()
 
-# STEP 319: RETRIEVE CONTROLLER BACKUP HISTORY.
+# STEP 37: RETRIEVE CONTROLLER BACKUP HISTORY.
 # Uses the existing TRACE SQL schema.
 # Read-only. Does not modify backup files or database records.
 
@@ -1039,7 +1039,7 @@ def get_controller_backup_history(controller_id):
     finally:
         connection.close()
 
-# STEP 39: REGISTER A BACKUP AND ITS COMPARISON TOGETHER.
+# STEP 38: REGISTER A BACKUP AND ITS COMPARISON TOGETHER.
 # Both records use one SQL transaction.
 # A discarded capture has no BackupID.
 # This function does not move or delete files.
@@ -1051,12 +1051,12 @@ def register_backup_transaction(
     comparison_report=None,
     archived_file=None,
     notes=None,
-    project_id=None,  # STEP 138: Optional registered project
+    project_id=None,  # Optional registered project association
 ):
 
     backup_source = BackupTrigger(backup_source)
 
-    # STEP 39A: VALIDATE RETENTION AND FILE REQUIREMENTS.
+    # Validate the requested retention decision and required file.
     # Retained backups must have an existing archive file.
     # Discarded captures must not have an archive file.
 
@@ -1084,7 +1084,7 @@ def register_backup_transaction(
 
         file_hash = calculate_file_hash(file_path)
 
-    # STEP 39B: EXTRACT COMPARISON METADATA.
+    # Extract change count and full-project verification status.
     total_changes = None
     full_project_verified = False
 
@@ -1094,17 +1094,17 @@ def register_backup_transaction(
             comparison_report.get("FullProjectVerified") is True
         )
 
-    # STEP 39C: OPEN ONE DATABASE TRANSACTION.
+    # Open a database connection for a single transaction.
     connection = connect_trace_database()
 
     try:
         cursor = connection.cursor()
         backup_id = None
 
-        # STEP 39D: INSERT BACKUP METADATA WHEN RETAINED.
+        # Insert backup metadata only when a retained or held file exists.
         if file_path is not None:
 
-                       # STEP 138: ASSOCIATE BACKUP WITH REGISTERED PROJECT.
+            # Include the optional registered project association.
             # SQL enforces that ProjectID belongs to ControllerID.
 
             cursor.execute(
@@ -1126,7 +1126,7 @@ def register_backup_transaction(
 
             backup_id = cursor.fetchone()[0]
 
-        # STEP 39E: INSERT THE COMPARISON RECORD.
+        # Insert the comparison record in the same transaction.
         cursor.execute(
             """
             INSERT INTO dbo.BackupComparisons
@@ -1150,7 +1150,7 @@ def register_backup_transaction(
 
         comparison_id = cursor.fetchone()[0]
 
-        # STEP 39F: COMMIT BOTH RECORDS TOGETHER.
+        # Commit the backup and comparison records together.
         connection.commit()
 
         return {
@@ -1167,7 +1167,7 @@ def register_backup_transaction(
         connection.close()
 
 
-# STEP 41: ARCHIVE A CAPTURE AND REGISTER IT IN SQL.
+# STEP 39: COPY A STAGED BACKUP AND REGISTER IT IN SQL.
 # The archive copy is verified before database registration.
 # If SQL registration fails, preserve the file for recovery.
 # Automatic deletion is intentionally disabled here.
@@ -1184,11 +1184,11 @@ def archive_and_register_backup(
 
     backup_source = BackupTrigger(backup_source)
 
-    # STEP 41A: VERIFY THE TRIGGER MATCHES THE EVALUATION.
+    # Confirm the trigger matches the retention evaluation.
     if evaluation.trigger != backup_source:
         raise ValueError("Backup source does not match evaluation.")
 
-    # STEP 73: CONVERT UNSAFE DISCARD REQUESTS TO HOLD.
+    # Reject DISCARD requests; this function does not convert them to HOLD.
     # Monitoring captures must be preserved until TRACE can
     # verify the complete PLC program.
 
@@ -1200,13 +1200,13 @@ def archive_and_register_backup(
         )
     
 
-    # STEP 41C: VALIDATE THE STAGED FILE.
+    # Confirm the staged file exists before copying.
     staged = Path(staged_file).resolve()
 
     if not staged.is_file():
         raise FileNotFoundError(staged)
 
-    # STEP 41D: DETERMINE THE PLC-SPECIFIC STORAGE LOCATION.
+    # Resolve the shared staging area and controller-specific destination.
     # Staging remains shared, but archived files belong to
     # the permanent folder associated with their ControllerID.
 
@@ -1229,7 +1229,7 @@ def archive_and_register_backup(
         else controller_folder / "Archive"
     )
 
-        # STEP 184: GENERATE A READABLE CONTROLLER BACKUP FILENAME.
+    # Generate a readable filename for this registered controller.
     filename = generate_backup_filename(
         controller_id=controller_id,
         storage_root=controller_folder,
@@ -1247,7 +1247,7 @@ def archive_and_register_backup(
     # Copy exclusively and verify before SQL registration.
     copy_verified_backup(staged, destination)
 
-    # STEP 41G: REGISTER BACKUP AND COMPARISON TOGETHER.
+    # Register the backup and comparison in one SQL transaction.
     try:
         result = register_backup_transaction(
             controller_id=controller_id,
@@ -1268,12 +1268,12 @@ def archive_and_register_backup(
         )
         raise
 
-    # STEP 41H: REMOVE STAGING ONLY AFTER SQL SUCCESS.
+    # Remove the staged copy only after SQL registration succeeds.
     staged.unlink()
 
     return result
 
-# STEP 44: INITIALIZE PERSISTENT BACKUP STORAGE.
+# STEP 40: INITIALIZE PERSISTENT BACKUP STORAGE.
 # Existing files and directories are preserved.
 
 def initialize_persistent_storage():
@@ -1287,7 +1287,7 @@ def initialize_persistent_storage():
 
     return folders
 
-# STEP 46: GET THE REGISTERED PLC NAME FROM SQL SERVER.
+# STEP 41: GET THE REGISTERED PLC NAME FROM SQL SERVER.
 
 def get_controller_name(controller_id):
 
@@ -1318,7 +1318,7 @@ def get_controller_name(controller_id):
         connection.close()
 
 
-# STEP 47: CREATE OR LOCATE A PLC'S BACKUP FOLDER.
+# STEP 42: CREATE OR LOCATE A PLC'S BACKUP FOLDER.
 
 def get_controller_backup_folder(controller_id):
 
@@ -1366,7 +1366,7 @@ def get_controller_backup_folder(controller_id):
     return controller_folder
 
 
-# STEP 50: AUDIT REGISTERED BACKUP FILES.
+# STEP 43: AUDIT REGISTERED BACKUP FILES.
 # Read-only operation: no files or SQL records are modified.
 
 def audit_registered_backups(controller_id=None):
@@ -1376,7 +1376,7 @@ def audit_registered_backups(controller_id=None):
     try:
         cursor = connection.cursor()
 
-        # STEP 50A: RETRIEVE REGISTERED BACKUPS.
+        # Retrieve backup records for all controllers or one controller.
         if controller_id is None:
             cursor.execute(
                 """
@@ -1403,7 +1403,7 @@ def audit_registered_backups(controller_id=None):
 
     results = []
 
-    # STEP 50B: VERIFY EACH FILE AGAINST ITS SQL RECORD.
+    # Verify each stored file against its registered SHA-256 hash.
     for record in records:
 
         backup_id, plc_id, file_path, expected_hash = record
@@ -1447,12 +1447,12 @@ def audit_registered_backups(controller_id=None):
     return results
 
 
-# STEP 52: DETECT ARCHIVED FILES NOT REGISTERED IN SQL.
+# STEP 44: FIND BACKUP FILES THAT ARE NOT REGISTERED IN SQL.
 # Read-only: does not modify files or database records.
 
 def audit_unregistered_backups():
 
-    # STEP 52A: GET ALL REGISTERED FILE PATHS.
+    # Retrieve registered file paths from SQL for comparison.
     connection = connect_trace_database()
 
     try:
@@ -1474,7 +1474,7 @@ def audit_unregistered_backups():
     finally:
         connection.close()
 
-    # STEP 52B: SEARCH PLC ARCHIVE AND HOLD DIRECTORIES.
+    # Search controller-specific Archive and Hold folders for unmatched files.
     unregistered = []
 
     if not BACKUP_STORAGE_ROOT.exists():
@@ -1511,20 +1511,20 @@ def audit_unregistered_backups():
     return unregistered
 
 
-# STEP 64: RECOVER AN UNREGISTERED ARCHIVED BACKUP.
+# STEP 45: REGISTER AN EXISTING UNREGISTERED BACKUP FILE.
 # Registers an existing file without changing its contents.
 # Recovery does not establish PLC program validity or approval.
 
 def recover_unregistered_backup(controller_id, file_path, project_id=None):
 
-    # STEP 64A: RESOLVE AND VERIFY THE FILE.
+    # Resolve the requested recovery file and confirm it exists.
     backup_file = Path(file_path).resolve(strict=True)
 
     if not backup_file.is_file():
         raise ValueError("Recovery path is not a file.")
 
-    # STEP 64B: VERIFY THAT THE FILE IS INSIDE
-    # THE REGISTERED PLC'S ARCHIVE OR HOLD FOLDER.
+    # Confirm the file belongs to the selected controller's
+    # Archive or Hold folder before registering it.
     controller_folder = get_controller_backup_folder(
         controller_id
     ).resolve()
@@ -1540,7 +1540,7 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
             "File is not inside this PLC's backup folders."
         )
 
-    # STEP 64C: CALCULATE ITS SHA-256 HASH.
+    # Calculate the recovered file's SHA-256 hash.
     file_hash = calculate_file_hash(backup_file)
 
     connection = connect_trace_database()
@@ -1548,7 +1548,7 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
     try:
         cursor = connection.cursor()
 
-        # STEP 178A: CHECK FOR EXISTING BACKUP REGISTRATION.
+        # Lock and check for an existing registration to avoid duplicates.
         # Lock matching records to prevent duplicate recovery.
 
         cursor.execute(
@@ -1567,7 +1567,7 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
                 f"File is already registered as BackupID {existing[0]}."
             )
 
-        # STEP 178B: REGISTER BACKUP WITH PROJECT ASSOCIATION.
+        # Register the recovered backup with its optional project association.
         # SQL verifies ProjectID belongs to ControllerID.
 
         cursor.execute(
@@ -1595,7 +1595,7 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
         )
         backup_id = cursor.fetchone()[0]
 
-        # STEP 64F: RECORD THE RECOVERY EVENT.
+        # Record recovery as incomplete and requiring an audit.
         # No verified comparison is claimed.
         cursor.execute(
             """
@@ -1625,7 +1625,7 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
             "program comparison not verified.",
         )
 
-        # STEP 64G: COMMIT BOTH SQL RECORDS TOGETHER.
+        # Commit the backup and comparison records in one transaction.
         connection.commit()
 
         return backup_id
@@ -1640,20 +1640,20 @@ def recover_unregistered_backup(controller_id, file_path, project_id=None):
 
 
 
-# STEP 82: FINAL BACKUP INTEGRITY AUDIT.
+# STEP 46: RUN THE BACKUP INTEGRITY AUDIT DEMONSTRATION.
 # READ-ONLY: NO BACKUPS WILL BE DELETED.
 
 if __name__ == "__main__":
 
     controller_id = 1
 
-    # STEP 82A: AUDIT REGISTERED BACKUPS.
+    # Check registered backup files for missing or corrupted content.
     registered = audit_registered_backups(controller_id)
 
-    # STEP 82B: AUDIT UNREGISTERED FILES.
+    # Locate backup files that do not have SQL registrations.
     unregistered = audit_unregistered_backups()
 
-    # STEP 82C: DISPLAY REGISTERED BACKUPS.
+    # Display the status of each registered backup.
     print("\nREGISTERED BACKUPS")
 
     for record in registered:
@@ -1662,7 +1662,7 @@ if __name__ == "__main__":
             "| Status:", record["Status"]
         )
 
-    # STEP 82D: DISPLAY SUMMARY.
+    # Count healthy files and display the audit summary.
     healthy = sum(
         1 for record in registered
         if record["Status"] == "Healthy"
@@ -1673,7 +1673,7 @@ if __name__ == "__main__":
     print("Healthy:", healthy)
     print("Unregistered:", len(unregistered))
 
-    # STEP 82E: VERIFY EXPECTED RESULTS.
+    # Assert the specific one-backup demonstration test conditions.
     assert len(registered) == 1
     assert registered[0]["BackupID"] == 1
     assert registered[0]["Status"] == "Healthy"

@@ -1,12 +1,6 @@
 ﻿
-# ==========================================================
-# TRACE - ETHERNET MONITOR - VERSION 0.014
-# Automatic PLC identification and SQL registration.
-# Tracks physical processors separately from installations.
-# Read-only communication with the PLC.
-# ==========================================================
 
-# STEP 1: IMPORT REQUIRED LIBRARIES.
+# STEP 1: Import monitoring and identification libraries.
 from datetime import datetime, timezone
 import os
 import ipaddress
@@ -15,6 +9,7 @@ import uuid
 from pycomm3 import CIPDriver, LogixDriver
 import pyodbc
 
+# STEP 2: Configure the TRACE SQL Server connection.
 SQL_CONNECTION = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
     f"SERVER={os.environ.get('TRACE_SQL_SERVER', r'localhost\SQLEXPRESS')};"
@@ -25,20 +20,17 @@ SQL_CONNECTION = (
 )
 
 
-# STEP 3: READ THE PHYSICAL CONTROLLER IDENTITY.
+# STEP 3: Begin read-only controller identification.
 def identify_controller(ip_address):
 
-    # STEP 3A: VALIDATE THE CONTROLLER IP ADDRESS.
-    # TRACE should only scan an address explicitly supplied
-    # for a controller the user is authorized to monitor.
 
+    # STEP 4: Validate the supplied controller IP address.
     ip_address = str(ipaddress.ip_address(ip_address.strip()))
 
     print(f"TRACE: Connecting to {ip_address}...")
 
-    # STEP 3B: READ THE CONTROLLER'S CIP IDENTITY.
-    # This does not modify the controller's program.
 
+    # STEP 5: Read the controller's CIP hardware identity.
     with CIPDriver(ip_address) as plc:
         identity = plc.get_module_info(0)
 
@@ -55,9 +47,8 @@ def identify_controller(ip_address):
     if not product_name or serial is None:
         raise ValueError("Controller identity is incomplete.")
 
-        # STEP 455A: READ THE CONTROLLER'S LOGIX PROJECT NAME.
-    # This is read-only and does not upload or modify logic.
 
+    # STEP 6: Prepare to retrieve the Logix project name.
     controller_name = product_name
 
     try:
@@ -73,14 +64,19 @@ def identify_controller(ip_address):
             f"Using hardware identity. Details: {error}"
         )
     
-    # STEP 3C: RETURN THE CONTROLLER INFORMATION.
-    # Serial numbers are used internally for identification.
 
+    # STEP 7: Return the identified controller information.
     return {
         "ip_address": ip_address,
         "controller_name": controller_name,
         "plc_model": product_name.split(" ")[0],
-        "controller_family": "CompactLogix",
+        "controller_family": (
+            "CompactLogix"
+            if "CompactLogix" in product_name
+            else "ControlLogix"
+            if "ControlLogix" in product_name
+            else "Unknown"
+        ),
         "firmware_major": revision.get("major"),
         "firmware_minor": revision.get("minor"),
         "serial_number": (
@@ -91,7 +87,7 @@ def identify_controller(ip_address):
     }
 
 
-# STEP 4: REGISTER OR UPDATE CONTROLLER HARDWARE.
+# STEP 8: Begin SQL registration and hardware tracking.
 def register_controller(identity):
 
     connection = pyodbc.connect(
@@ -102,16 +98,12 @@ def register_controller(identity):
     try:
         cursor = connection.cursor()
 
-        # STEP 4A: START A SERIALIZABLE TRANSACTION.
-        # This protects registration decisions from
-        # concurrent scans modifying the same records.
 
         cursor.execute(
+            # STEP 9: Protect registration against concurrent changes.
             "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
         )
 
-        # STEP 4B: SEARCH THE HARDWARE HISTORY BY SERIAL.
-        # Find the most recent installation of this processor.
 
         cursor.execute("""
             SELECT TOP (1)
@@ -132,18 +124,16 @@ def register_controller(identity):
                 h.HardwareID DESC
         """, identity["serial_number"])
 
+        # STEP 10: Check for existing processor installation history.
         existing = cursor.fetchone()
 
-        # STEP 4C: HANDLE A KNOWN, ACTIVE PROCESSOR.
-        # Preserve its equipment name and ControllerID.
 
+        # STEP 11: Update a previously registered active processor.
         if existing and existing[2] is None:
 
             hardware_id = existing[0]
             controller_id = existing[1]
 
-            # STEP 4D: CHECK WHETHER THE NEW IP BELONGS
-            # TO ANOTHER CONTROLLER INSTALLATION.
 
             cursor.execute("""
                 SELECT ControllerID, ControllerName
@@ -158,6 +148,7 @@ def register_controller(identity):
 
             conflict = cursor.fetchone()
 
+            # STEP 12: Reject conflicting controller IP assignments.
             if conflict:
                 raise ValueError(
                     "IP address is assigned to another "
@@ -166,7 +157,6 @@ def register_controller(identity):
                     "No records were changed."
                 )
 
-            # STEP 4E: UPDATE THE PHYSICAL PROCESSOR.
 
             cursor.execute("""
                 UPDATE dbo.ControllerHardware
@@ -182,8 +172,6 @@ def register_controller(identity):
                 hardware_id
             )
             
-            # STEP 485: RECOVER AN UNNAMED CONTROLLER'S PROGRAMMED NAME.
-            # Never overwrite a technician-assigned friendly name.
 
             detected_name = str(
                 identity.get("controller_name") or ""
@@ -205,9 +193,6 @@ def register_controller(identity):
                     controller_id
                 )
                 
-            # STEP 4F: UPDATE THE EQUIPMENT'S CURRENT
-            # CONNECTION INFORMATION.
-            # Keep the original ControllerID and name.
 
             cursor.execute("""
                 UPDATE dbo.Controllers
@@ -228,12 +213,12 @@ def register_controller(identity):
                 controller_id
             )
 
+            # STEP 13: Record successful registration updates.
             action = "updated"
 
+        # STEP 14: Handle newly detected or historically removed processors.
         else:
 
-            # STEP 4G: CHECK WHETHER THIS IP ADDRESS
-            # ALREADY BELONGS TO AN EXISTING INSTALLATION.
 
             cursor.execute("""
                 SELECT ControllerID, ControllerName
@@ -245,22 +230,14 @@ def register_controller(identity):
             conflict = cursor.fetchone()
 
            
-            # STEP 4H: RECORD A POSSIBLE PROCESSOR REPLACEMENT.
-            # An unfamiliar processor has appeared at an IP
-            # address assigned to an existing installation.
-            # Do not change the controller or hardware records.
 
+            # STEP 15: Record a possible processor replacement warning.
             if conflict:
                 controller_id = conflict[0]
 
-                # STEP 4H-1: ROLL BACK THE REGISTRATION TRANSACTION.
-                # Start a separate transaction for the warning.
 
                 connection.rollback()
 
-                # STEP 4H-2: RECORD THE WARNING ONLY ONCE.
-                # Repeated scans of the same processor should
-                # not create duplicate pending events.
 
                 cursor.execute("""
                     IF NOT EXISTS (
@@ -291,8 +268,6 @@ def register_controller(identity):
                     identity["ip_address"]
                 )
 
-                # STEP 4H-3: SAVE THE WARNING BEFORE
-                # STOPPING AUTOMATIC REGISTRATION.
 
                 connection.commit()
 
@@ -305,10 +280,8 @@ def register_controller(identity):
                 )
 
 
-            # STEP 4I: DO NOT AUTOMATICALLY REASSIGN
-            # HARDWARE THAT HAS A HISTORICAL RECORD.
-            # This could be a previously removed processor.
 
+            # STEP 16: Prevent automatic reassignment of historical hardware.
             if existing:
                 raise ValueError(
                     "KNOWN PROCESSOR REDETECTED: "
@@ -318,20 +291,17 @@ def register_controller(identity):
                     "assigning it to equipment."
                 )
 
-            # STEP 456: USE THE DETECTED LOGIX CONTROLLER NAME.
-            # Preserve the ability to assign a friendly name later.
-            # Existing controller names are not overwritten during rescans.
 
+            # STEP 17: Select the detected controller name.
             controller_name = str(
                 identity.get("controller_name") or ""
             ).strip()
 
-            # STEP 456A: FALL BACK TO A UNIQUE TEMPORARY NAME
-            # IF THE CONTROLLER NAME CANNOT BE READ.
 
             if not controller_name:
                 controller_name = f"Unnamed_{uuid.uuid4().hex[:12]}"
 
+            # STEP 18: Create the new controller installation.
             cursor.execute("""
                 INSERT INTO dbo.Controllers (
                     ControllerName,
@@ -359,11 +329,9 @@ def register_controller(identity):
                 identity["serial_number"]
             )
 
+            # STEP 19: Retrieve the new controller installation ID.
             controller_id = cursor.fetchone()[0]
 
-            # STEP 4K: REGISTER THE PHYSICAL PROCESSOR.
-            # The hardware record links to the new
-            # permanent equipment installation.
 
             cursor.execute("""
                 INSERT INTO dbo.ControllerHardware (
@@ -386,10 +354,11 @@ def register_controller(identity):
                 identity["firmware_minor"]
             )
 
+            # STEP 20: Record successful new registration.
             action = "registered"
 
-        # STEP 4L: COMMIT BOTH DATABASE UPDATES TOGETHER.
 
+        # STEP 21: Commit verified controller registration changes.
         connection.commit()
 
         return controller_id, action
@@ -402,21 +371,17 @@ def register_controller(identity):
         connection.close()
 
 
-# STEP 5: CONFIRM A PROCESSOR REPLACEMENT.
-# Only a technician-initiated action should call this function.
-# Never call it automatically during normal scanning.
 
 
-# STEP 5: CONFIRM A PROCESSOR REPLACEMENT.
-# Require technician attribution and maintenance notes.
 
+# STEP 22: Begin technician-confirmed processor replacement.
 def confirm_hardware_replacement(
     event_id,
     technician_name,
     resolution_notes
 ):
 
-    # STEP 5A-1: VALIDATE TECHNICIAN INFORMATION.
+    # STEP 23: Validate technician identity and maintenance notes.
     technician_name = technician_name.strip()
     resolution_notes = resolution_notes.strip()
 
@@ -430,7 +395,6 @@ def confirm_hardware_replacement(
             "Enter maintenance notes of 1000 characters or fewer."
         )
 
-    # STEP 5A: LOAD THE PENDING EVENT WITHOUT CHANGING DATA.
     connection = pyodbc.connect(SQL_CONNECTION, timeout=5)
 
     try:
@@ -457,8 +421,6 @@ def confirm_hardware_replacement(
 
         controller_id, detected_ip, expected_serial, assigned_ip = event
 
-        # STEP 5B: VERIFY THE EVENT STILL REFERS
-        # TO THE EQUIPMENT'S CURRENT IP ADDRESS.
 
         if detected_ip != assigned_ip:
             raise ValueError(
@@ -469,9 +431,8 @@ def confirm_hardware_replacement(
     finally:
         connection.close()
 
-    # STEP 5C: RECONNECT TO THE PHYSICAL PLC.
-    # Confirm that the replacement is still present.
 
+    # STEP 24: Verify the replacement processor is physically present.
     identity = identify_controller(detected_ip)
 
     if identity["serial_number"] != expected_serial:
@@ -481,7 +442,6 @@ def confirm_hardware_replacement(
             "the pending hardware event."
         )
 
-    # STEP 5D: BEGIN THE DATABASE REPLACEMENT TRANSACTION.
     connection = pyodbc.connect(SQL_CONNECTION, timeout=5)
 
     try:
@@ -491,7 +451,6 @@ def confirm_hardware_replacement(
             "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
         )
 
-        # STEP 5E: LOCK AND REVALIDATE THE PENDING EVENT.
 
         cursor.execute("""
             SELECT
@@ -526,8 +485,6 @@ def confirm_hardware_replacement(
 
         controller_id = event[0]
 
-        # STEP 5F: CHECK FOR EXISTING ACTIVE USE
-        # OF THE REPLACEMENT PROCESSOR.
 
         cursor.execute("""
             SELECT ControllerID
@@ -544,10 +501,6 @@ def confirm_hardware_replacement(
                 "registered as active. Manual review required."
             )
         
-        # STEP 5F-1: CHECK THE REPLACEMENT'S FULL HISTORY.
-        # A processor that was previously installed anywhere
-        # requires additional technician review.
-        # Do not automatically reuse historical hardware.
 
         cursor.execute("""
             SELECT
@@ -559,11 +512,9 @@ def confirm_hardware_replacement(
             WHERE SerialNumber = ?
         """, identity["serial_number"])
 
+        # STEP 25: Check the replacement processor's complete history.
         previous_installations = cursor.fetchall()
 
-        # STEP 5F-2: REJECT PREVIOUSLY REGISTERED HARDWARE.
-        # This also prevents duplicate registration of a
-        # processor that is already active elsewhere.
 
         if previous_installations:
             raise ValueError(
@@ -573,8 +524,6 @@ def confirm_hardware_replacement(
             )
 
 
-        # STEP 5G: RETIRE THE OLD PROCESSOR.
-        # Preserve its historical hardware record.
 
         cursor.execute("""
             UPDATE dbo.ControllerHardware
@@ -584,13 +533,13 @@ def confirm_hardware_replacement(
               AND SerialNumber <> ?
         """, controller_id, identity["serial_number"])
 
+        # STEP 26: Verify exactly one existing processor was retired.
         if cursor.rowcount != 1:
             raise ValueError(
                 "Expected exactly one installed processor. "
                 "Replacement was cancelled."
             )
 
-        # STEP 5H: REGISTER THE NEW PHYSICAL PROCESSOR.
 
         cursor.execute("""
             INSERT INTO dbo.ControllerHardware (
@@ -610,8 +559,6 @@ def confirm_hardware_replacement(
             identity["firmware_minor"]
         )
 
-        # STEP 5I: UPDATE THE EQUIPMENT'S CURRENT INFORMATION.
-        # Preserve ControllerID and the friendly name.
 
         cursor.execute("""
             UPDATE dbo.Controllers
@@ -639,12 +586,8 @@ def confirm_hardware_replacement(
                 "Equipment record changed. Replacement cancelled."
             )
 
-        # STEP 5J: RESOLVE THE HARDWARE EVENT.
 
         
-        # STEP 5J: RESOLVE THE HARDWARE EVENT.
-        # Record technician attribution and maintenance notes
-        # in the same transaction as the processor replacement.
 
         cursor.execute("""
             UPDATE dbo.HardwareEvents
@@ -660,8 +603,13 @@ def confirm_hardware_replacement(
             event_id
         )
 
-        # STEP 5K: SAVE ALL CHANGES TOGETHER.
+        if cursor.rowcount != 1:
+            raise ValueError(
+                "Replacement event changed. Transaction cancelled."
+            )
 
+
+        # STEP 27: Commit the confirmed processor replacement.
         connection.commit()
         return controller_id
 
@@ -673,14 +621,13 @@ def confirm_hardware_replacement(
         connection.close()
 
 
-# STEP 5: RUN THE COMPLETE MONITORING TEST.
-def main():
+# STEP 28: Run live identification and SQL registration.
+def main(ip_address):
 
     try:
 
-        # STEP 5A: IDENTIFY THE LIVE PLC.
 
-        identity = identify_controller(PLC_IP)
+        identity = identify_controller(ip_address)
 
         print("\nTRACE - LIVE CONTROLLER")
         print("IP Address:", identity["ip_address"])
@@ -692,7 +639,6 @@ def main():
             f"{identity['firmware_minor']}"
         )
 
-        # STEP 5B: REGISTER OR UPDATE THE CONTROLLER.
 
         controller_id, action = register_controller(identity)
 
@@ -708,8 +654,12 @@ def main():
         print(f"TRACE monitoring failed: {error}")
 
 
-# STEP 6: EXECUTE THE MONITOR.
+# STEP 29: Accept a controller IP address from the command line.
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("ip_address", help="PLC IPv4 address")
+    args = parser.parse_args()
+    main(args.ip_address)
 
 

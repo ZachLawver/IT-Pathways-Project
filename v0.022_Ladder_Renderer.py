@@ -1,4 +1,4 @@
-# STEP 387: TRACE GRAPHICAL LADDER LOGIC RENDERER
+# STEP 1: DEFINE THE TRACE GRAPHICAL LADDER LOGIC RENDERER.
 #
 # Converts Rockwell ladder instruction text into structured
 # components for graphical display.
@@ -11,7 +11,7 @@
 # OTU - Output Unlatch
 #
 # Unsupported instructions are preserved as generic blocks.
-# Parallel branches will be added in the next stage.
+# A separate parser below preserves parallel and nested branches.
 
 
 def parse_ladder_rung(logic):
@@ -86,7 +86,7 @@ def parse_ladder_rung(logic):
 
     return instructions
 
-# STEP 403: PARSE LADDER LOGIC WHILE PRESERVING BRANCH STRUCTURE
+# STEP 2: PARSE LADDER LOGIC WHILE PRESERVING BRANCH STRUCTURE.
 
 def parse_ladder_structure(logic):
     """
@@ -187,7 +187,7 @@ def parse_ladder_structure(logic):
 
     return parse_sequence()
 
-# STEP 511: IDENTIFY CHANGED LADDER INSTRUCTIONS.
+# STEP 3: IDENTIFY CHANGED LADDER INSTRUCTIONS.
 # Compare instruction sequences while preserving branch structure.
 
 def mark_ladder_changes(previous_elements, new_elements):
@@ -268,7 +268,7 @@ def mark_ladder_changes(previous_elements, new_elements):
             old_items = previous[old_start:old_end]
             new_items = current[new_start:new_end]
 
-            # STEP 517: RECURSIVELY CHECK MATCHING BRANCHES.
+            # Recursively compare matching branches to identify internal changes.
             if operation == "equal":
                 for old_item, new_item in zip(old_items, new_items):
                     if (
@@ -318,11 +318,11 @@ def mark_ladder_changes(previous_elements, new_elements):
 
     return previous_elements, new_elements
 
-# STEP 404: SVG LADDER DRAWING ENGINE
+# STEP 4: IMPORT HTML ESCAPING FOR SVG OUTPUT.
 
 from html import escape
 
-# STEP 420: CALCULATE PARALLEL BRANCH LAYOUT
+# STEP 5: CALCULATE PARALLEL BRANCH LAYOUT.
 
 def calculate_branch_layout(elements, row_height=90):
     """
@@ -372,7 +372,7 @@ def calculate_branch_layout(elements, row_height=90):
 
     return layout_sequence(elements)
 
-# STEP 422: PARALLEL BRANCH SVG RENDERER
+# STEP 6: RENDER PARALLEL AND NESTED LADDER BRANCHES AS SVG.
 
 def render_branch_svg(elements):
     """
@@ -389,7 +389,7 @@ def render_branch_svg(elements):
 
     output_types = {"OTE", "OTL", "OTU"}
 
-        # STEP 499: CALCULATE INSTRUCTION WIDTH FROM TAG LENGTH.
+# Calculate instruction width from operand label length.
 
     def instruction_width(item):
         operand = str(item.get("operand") or "")
@@ -398,7 +398,7 @@ def render_branch_svg(elements):
 
         return max(CELL_WIDTH, label_width + 50)
 
-        # STEP 501: CALCULATE SEQUENCE WIDTH USING TAG LENGTHS.
+# Calculate sequence width in pixels using instruction and branch sizes.
     # Return widths in pixels instead of fixed cell counts.
 
     def sequence_width(items):
@@ -433,7 +433,7 @@ def render_branch_svg(elements):
                 )
         return rows
 
-    # STEP 504: SIZE SVG CANVAS USING PIXEL-BASED LAYOUT.
+# Size the SVG canvas to fit the calculated layout.
     # sequence_width() already returns pixels.
 
     width = max(
@@ -467,7 +467,7 @@ def render_branch_svg(elements):
         kind = item["type"]
         operand = item["operand"]
 
-                # STEP 523: DRAW INSTRUCTION CHANGE HIGHLIGHT.
+# Highlight instructions according to their comparison status.
         # Green = added, red = removed, yellow = modified.
 
         change_colors = {
@@ -539,14 +539,14 @@ def render_branch_svg(elements):
         )
         return 40
 
-        # STEP 503: DRAW LADDER SEQUENCES WITH VARIABLE-WIDTH CELLS.
+# Draw instructions and branches with variable-width cells.
 
     def draw_sequence(items, start_x, y):
         cursor = start_x
 
         for item in items:
 
-            # STEP 503A: DRAW INDIVIDUAL INSTRUCTIONS.
+# Draw each instruction and connect it to adjacent wire segments.
 
             if item["kind"] == "instruction":
                 cell_width = instruction_width(item)
@@ -559,7 +559,7 @@ def render_branch_svg(elements):
 
                 cursor += cell_width
 
-            # STEP 503B: DRAW PARALLEL AND NESTED BRANCHES.
+# Draw parallel and nested paths with shared split and join points.
 
             elif item["kind"] == "branch":
                 paths = item["paths"]
@@ -608,25 +608,27 @@ def render_branch_svg(elements):
     parts.append("</svg>")
     return "".join(parts)
 
+# STEP 7: RENDER A STANDARD OR BRANCHED LADDER RUNG AS SVG.
+
 def render_ladder_svg(logic, elements=None):
     """
     Render a simple Rockwell ladder rung as SVG.
 
-    Returns None for branched rungs until branch
-    rendering is implemented.
+    Render branched rungs with the branch SVG renderer.
+    Render supported unbranched instructions directly as SVG.
     """
 
-    # STEP 419: ALLOW BRANCHED RUNGS INTO THE RENDERING PIPELINE
+# Return None when there is no rung logic to render.
     if not logic:
         return None
 
-    # STEP 513B: PRESERVE INSTRUCTION CHANGE STATUS.
+# Preserve supplied comparison annotations when available.
     # Parse normally unless compared elements were supplied.
 
     if elements is None:
         elements = parse_ladder_structure(logic)
 
-    # STEP 424: INITIALIZE INSTRUCTIONS BEFORE BRANCH ROUTING
+# Identify instructions and check whether the rung has branches.
 
     instructions = [
         item for item in elements
@@ -651,7 +653,7 @@ def render_ladder_svg(logic, elements=None):
     ):
         return None
 
-    # STEP 410: EXPAND SVG WIDTH FOR LONG TAG NAMES
+# Calculate SVG width to accommodate long tag names.
 
     height = 130
     wire_y = 80
@@ -707,7 +709,7 @@ def render_ladder_svg(logic, elements=None):
             f'stroke="#222" stroke-width="2"/>'
         )
 
-    # STEP 414: PREVENT LONG OUTPUT TAGS FROM CLIPPING
+    # Explain how long operand labels are kept inside the right power rail.
 
     def label(x, text):
         estimated_width = len(text) * 9
@@ -729,7 +731,7 @@ def render_ladder_svg(logic, elements=None):
         kind = item["type"]
         operand = item["operand"]
         
-        # STEP 514: HIGHLIGHT CHANGED LADDER INSTRUCTIONS.
+        # Select the highlight color for an instruction based on its change status.
         # Green = added, red = removed, yellow = modified.
         # Unchanged instructions retain their original appearance.
 
@@ -742,7 +744,7 @@ def render_ladder_svg(logic, elements=None):
         change_status = item.get("change_status", "unchanged")
         highlight_color = change_colors.get(change_status)
 
-        # STEP 515: HIGHLIGHT CHANGED STRAIGHT-RUNG INSTRUCTIONS.
+        # Reapply the same change-color mapping before drawing the highlight.
         # Green = added, red = removed, yellow = modified.
 
         change_colors = {
@@ -766,7 +768,7 @@ def render_ladder_svg(logic, elements=None):
 
         label(x, operand)
 
-                # STEP 417: RESTORE XIC AND XIO CONTACT SYMBOLS
+                # Draw the two contact bars and optional slash for XIC and XIO.
 
         if kind in {"XIC", "XIO"}:
 
@@ -800,7 +802,7 @@ def render_ladder_svg(logic, elements=None):
 
             return 12
 
-        # STEP 416: ROCKWELL-STYLE OUTPUT COIL SYMBOLS
+        # Draw the curved output coil for OTE, OTL, and OTU.
 
         if kind in output_types:
 
@@ -854,7 +856,7 @@ def render_ladder_svg(logic, elements=None):
 
     cursor = left_rail
 
-    # STEP 413: CONTINUOUS WIRING WITH SEPARATE LABEL SPACING
+    # Position input symbols and labels while maintaining continuous wiring.
 
     previous_label_right = left_rail
 

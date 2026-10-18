@@ -1,34 +1,34 @@
-﻿# STEP 1: IMPORT FLASK WEB AND SESSION FEATURES.
+﻿# STEP 1: IMPORT WEB FRAMEWORK AND SUPPORT LIBRARIES.
 from flask import Flask, render_template, request, session, redirect, url_for
 import pyodbc
 import os
 
-# STEP 1A: IMPORT SUPPORT FOR PROJECT FILE UPLOADS.
+# IMPORT SUPPORT FOR PROJECT FILE UPLOADS.
 from pathlib import Path
 import importlib.util
 import tempfile
 
-# DEMO STEP 20A: IMPORT PLC AUDIT READER DEPENDENCIES.
+# IMPORT PLC AUDIT READER DEPENDENCIES.
 from pycomm3 import CIPDriver
 import struct
 
-# STEP 2: CONFIGURE TRACE.
+# STEP 2: CONFIGURE THE TRACE FLASK APPLICATION.
 app = Flask(__name__)
 
-# STEP 2A: CONFIGURE SESSION SECURITY.
+# CONFIGURE SESSION SECURITY.
 # Flask signs session data so the browser cannot modify it unnoticed.
 # Generate a new secret when Flask starts.
 import secrets
 
 app.secret_key = secrets.token_hex(32)
 
-# STEP 2A: LIMIT UPLOADED PLC PROJECT FILES TO 20 MB.
+# LIMIT UPLOADED PLC PROJECT FILES TO 20 MB.
 # Prevents excessively large uploads from being processed.
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
 BACKUP_ROOT = Path(os.environ.get("TRACE_BACKUP_ROOT", r"C:\TRACE_Backups"))
 
-# STEP 2B: CONFIGURE THE SQL SERVER CONNECTION.
+# CONFIGURE THE SQL SERVER CONNECTION.
 connection_string = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
     f"SERVER={os.environ.get('TRACE_SQL_SERVER', r'localhost\SQLEXPRESS')};"
@@ -39,7 +39,7 @@ connection_string = (
 )
 
 
-# TRACE COMMISSIONING RESET ? CONFIRMATION PAGE ONLY.
+# STEP 3: HANDLE CONFIRMED COMMISSIONING RESETS.
 @app.route("/demo/reset", methods=["GET", "POST"])
 def commissioning_reset():
     if request.method == "POST":
@@ -95,20 +95,21 @@ def commissioning_reset():
     )
 
 
+# STEP 4: REDIRECT THE HOME PAGE TO THE DEMO.
 @app.route("/")
 def home():
     return redirect(url_for("demo"))
 
-# STEP 6: RETRIEVE CONTROLLER INVENTORY AND MONITORING INFORMATION.
+# STEP 5: RETRIEVE CONTROLLER INVENTORY AND MONITORING INFORMATION.
 def get_controllers():
     connection = pyodbc.connect(connection_string, timeout=5)
 
     try:
         cursor = connection.cursor()
 
-        # STEP 6A: RETRIEVE DISPLAY FIELDS ONLY.
+        # RETRIEVE DISPLAY FIELDS ONLY.
         # Hardware serial numbers remain internal to TRACE.
-                # STEP 435: INCLUDE INITIAL AUDIT REGISTRATION STATUS.
+                # INCLUDE INITIAL AUDIT REGISTRATION STATUS.
         cursor.execute("""
             SELECT
                 c.ControllerID,
@@ -138,7 +139,7 @@ def get_controllers():
             ORDER BY c.ControllerName
         """)
 
-        # STEP 6B: CONVERT SQL RESULTS TO NAMED DICTIONARIES.
+        # CONVERT SQL RESULTS TO NAMED DICTIONARIES.
         columns = [column[0] for column in cursor.description]
 
         return [
@@ -149,7 +150,7 @@ def get_controllers():
     finally:
         connection.close()
 
-# DEMO STEP 20B: READ LIVE CONTROLLER AUDIT VALUE.
+# STEP 6: READ THE LIVE CONTROLLER AUDIT VALUE.
 # Read-only CIP request. Does not write to the PLC.
 
 def read_demo_audit_value(plc_ip):
@@ -175,34 +176,34 @@ def read_demo_audit_value(plc_ip):
 
         return f"{high:08X}{low:08X}"
 
-# DEMO STEP 26: REGISTER INITIAL AUDIT VALUE.
+# STEP 7: REGISTER THE INITIAL CONTROLLER AUDIT VALUE.
 # Associates the Audit Value with the physical PLC serial number.
 # Refuses to overwrite an existing registration.
 # PLC communication is read-only.
 
 def register_demo_initial_audit(controller_id):
 
-    # STEP 41A: GET THE SELECTED PLC FROM SQL SERVER.
+    # GET THE SELECTED PLC FROM SQL SERVER.
     selected_controller = get_demo_selected_controller(controller_id)
     plc_ip = selected_controller["ip_address"]
 
-    # STEP 26A: READ THE PHYSICAL PLC SERIAL NUMBER.
+    # READ THE PHYSICAL PLC SERIAL NUMBER.
     from pycomm3 import LogixDriver
 
     with LogixDriver(plc_ip) as plc:
         info = plc.get_plc_info()
         serial_number = str(info["serial"]).lower()
 
-    # STEP 26B: READ THE CURRENT AUDIT VALUE.
+    # READ THE CURRENT AUDIT VALUE.
     audit_value = read_demo_audit_value(plc_ip)
 
-    # STEP 26C: OPEN TRACE'S EXISTING DATABASE.
+    # OPEN TRACE'S EXISTING DATABASE.
     connection = pyodbc.connect(connection_string, timeout=5)
 
     try:
         cursor = connection.cursor()
 
-        # STEP 26D: REGISTER ONLY THE MATCHING ACTIVE PROCESSOR.
+        # REGISTER ONLY THE MATCHING ACTIVE PROCESSOR.
         # The initial value cannot be overwritten by this operation.
         cursor.execute("""
             UPDATE h
@@ -217,7 +218,7 @@ def register_demo_initial_audit(controller_id):
               AND h.InitialAuditValue IS NULL
         """, audit_value, serial_number, plc_ip)
 
-                # DEMO STEP 30: HANDLE AN ALREADY REGISTERED PLC.
+                # HANDLE AN ALREADY REGISTERED PLC.
         if cursor.rowcount != 1:
 
             cursor.execute("""
@@ -253,7 +254,7 @@ def register_demo_initial_audit(controller_id):
                 "could not be registered."
             )
 
-                # DEMO STEP 27: RETRIEVE THE FRIENDLY PLC NAME.
+                # RETRIEVE THE FRIENDLY PLC NAME.
         # The serial number identifies the physical processor.
         # ControllerID links that processor to its friendly name.
 
@@ -282,12 +283,12 @@ def register_demo_initial_audit(controller_id):
     finally:
         connection.close()
 
-# DEMO STEP 31: READ REGISTERED AUDIT VALUE.
+# STEP 8: READ THE REGISTERED AUDIT VALUE.
 # Read-only database operation. Never updates the baseline.
 
 def get_demo_registered_audit(controller_id):
 
-    # DEMO STEP 42A: USE THE SELECTED CONTROLLER.
+    # USE THE SELECTED CONTROLLER.
     selected_controller = get_demo_selected_controller(controller_id)
     plc_ip = selected_controller["ip_address"]
 
@@ -330,7 +331,7 @@ def get_demo_registered_audit(controller_id):
     finally:
         connection.close()
 
-# DEMO STEP 32: COMPARE LIVE AND REGISTERED AUDIT VALUES.
+# STEP 9: COMPARE LIVE AND REGISTERED AUDIT VALUES.
 # PLC and database operations are read-only.
 # Never overwrite the initial registered Audit Value.
 
@@ -338,16 +339,16 @@ def check_demo_audit_value(controller_id):
 
     from pycomm3 import LogixDriver
 
-    # DEMO STEP 42B: USE THE SELECTED CONTROLLER.
+    # USE THE SELECTED CONTROLLER.
     selected_controller = get_demo_selected_controller(controller_id)
     plc_ip = selected_controller["ip_address"]
 
-    # STEP 32A: GET THE REGISTERED BASELINE.
+    # GET THE REGISTERED BASELINE.
     friendly_name, registered_serial, initial_audit = (
         get_demo_registered_audit(controller_id)
     )
 
-    # STEP 32B: VERIFY THE PHYSICAL PROCESSOR.
+    # VERIFY THE PHYSICAL PROCESSOR.
     with LogixDriver(plc_ip) as plc:
         info = plc.get_plc_info()
         live_serial = str(info["serial"]).lower()
@@ -360,10 +361,10 @@ def check_demo_audit_value(controller_id):
             "A processor replacement may have occurred."
         )
 
-    # STEP 32C: READ THE CURRENT AUDIT VALUE.
+    # READ THE CURRENT AUDIT VALUE.
     current_audit = read_demo_audit_value(plc_ip)
 
-    # STEP 32D: DETERMINE WHETHER A CHANGE OCCURRED.
+    # DETERMINE WHETHER A CHANGE OCCURRED.
     change_detected = current_audit != initial_audit
 
     return {
@@ -374,7 +375,7 @@ def check_demo_audit_value(controller_id):
         "change_detected": change_detected
     }
 
-# DEMO STEP 40: RESOLVE SELECTED CONTROLLER.
+# STEP 10: RESOLVE THE SELECTED CONTROLLER FROM SQL SERVER.
 # Reads the existing TRACE registry without changing SQL records.
 
 def get_demo_selected_controller(controller_id):
@@ -409,7 +410,7 @@ def get_demo_selected_controller(controller_id):
     finally:
         connection.close()
 
-# DEMO STEP 28: HANDLE INITIAL AUDIT REGISTRATION.
+# STEP 11: HANDLE THE MAIN TRACE DEMO WEB ROUTE.
 
 @app.route("/demo", methods=["GET", "POST"])
 def demo():
@@ -420,22 +421,22 @@ def demo():
     registered_serial = None
     registered_audit = None
 
-    # DEMO STEP 43F: INITIALIZE AUDIT RESULTS.
+    # INITIALIZE AUDIT RESULTS.
     # Only check the PLC when the user clicks Check Audit Value.
     audit_result = None
     audit_error = None
 
     demo_controllers = get_controllers()
 
-    # DEMO STEP 54: PREPARE MANUAL L5X UPLOAD RESULTS.
+    # PREPARE MANUAL L5X UPLOAD RESULTS.
     upload_message = None
     upload_error = None
     comparison_details = None
-    # STEP 378: PREPARE STRUCTURED RUNG CHANGES FOR DISPLAY.
+    # PREPARE STRUCTURED RUNG CHANGES FOR DISPLAY.
     rung_changes = []
 
     if request.method == "POST":
-        # STEP 467: DISCOVER AND SYNCHRONIZE NETWORK PLCs.
+        # DISCOVER AND SYNCHRONIZE NETWORK PLCs.
         # Reuse the existing network discovery and registration engine.
         # Preserve controller IDs and existing audit registrations.
 
@@ -456,7 +457,7 @@ def demo():
                 discovery = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(discovery)
 
-                # STEP 467A: DISCOVER DEVICES AND IDENTIFY PLCs.
+                # DISCOVER DEVICES AND IDENTIFY PLCs.
 
                 devices = discovery.discover_devices()
 
@@ -464,13 +465,13 @@ def demo():
                     devices
                 )
 
-                # STEP 467B: SYNCHRONIZE IDENTIFIED PLCs WITH SQL.
+                # SYNCHRONIZE IDENTIFIED PLCs WITH SQL.
 
                 synchronized = discovery.synchronize_discovered_plcs(
                     controllers
                 )
 
-                # STEP 467C: REFRESH THE WEB INVENTORY.
+                # REFRESH THE WEB INVENTORY.
 
                 demo_controllers = get_controllers()
 
@@ -486,7 +487,7 @@ def demo():
                     f"Network discovery failed: {error}"
                 )        
                 
-                # DEMO STEP 55: RECEIVE MANUAL L5X UPLOAD.
+                # RECEIVE MANUAL L5X UPLOAD.
         if request.form.get("action") == "upload_L5X":
             try:
                 from uuid import uuid4
@@ -494,10 +495,10 @@ def demo():
 
                 uploaded_file = request.files.get("L5X_file")
                 
-                # STEP 312: VALIDATE THE SELECTED PLC.
+                # VALIDATE THE SELECTED PLC.
                 controller_id = request.form.get("controller_id")
                 selected_controller = get_demo_selected_controller(controller_id)
-                # STEP 372: VERIFY THE SELECTED CONTROLLER ASSOCIATION.
+                # VERIFY THE SELECTED CONTROLLER ASSOCIATION.
                 print(
                     "TRACE UPLOAD ASSOCIATION:",
                     "Controller ID =", controller_id,
@@ -520,10 +521,10 @@ def demo():
                     staged_path = Path(temporary_file.name)
                     uploaded_file.save(temporary_file)
 
-                # STEP 337: GET CONTROLLER NAME FROM THE SELECTED PLC.
+                # GET CONTROLLER NAME FROM THE SELECTED PLC.
                 controller_name = selected_controller["friendly_name"]
 
-                # STEP 341: LOAD THE EXISTING TRACE BACKUP NAMING FUNCTIONS.
+                # LOAD THE EXISTING TRACE BACKUP NAMING FUNCTIONS.
                 import importlib.util
 
                 backup_manager_path = Path(__file__).with_name(
@@ -540,7 +541,7 @@ def demo():
                     int(controller_id)
                 )
 
-                # STEP 345: USE THE REGISTERED FRIENDLY NAME AS THE BACKUP FOLDER.
+                # USE THE REGISTERED FRIENDLY NAME AS THE BACKUP FOLDER.
                 controller_folder = BACKUP_ROOT / controller_name
 
                 archive_folder = controller_folder / "Backup"
@@ -552,7 +553,7 @@ def demo():
                     reverse=True
                 )
 
-                # STEP 336: ESTABLISH BASELINE OR COMPARE AGAINST LATEST BACKUP.
+                # ESTABLISH BASELINE OR COMPARE AGAINST LATEST BACKUP.
 
                 import hashlib
                 import shutil
@@ -587,7 +588,7 @@ def demo():
                     uploaded_hash = sha256(staged_path)
 
 
-                   # STEP 365: DETERMINE WHETHER THE UPLOADED PROJECT CHANGED.
+                   # DETERMINE WHETHER THE UPLOADED PROJECT CHANGED.
                     if baseline_hash == uploaded_hash:
                         upload_message = (
                             f"Compared against: {latest_backup.name} | "
@@ -595,7 +596,7 @@ def demo():
                         )
                     else:
 
-                        # STEP 364: RUN STRUCTURED L5X LADDER LOGIC COMPARISON.
+                        # RUN STRUCTURED L5X LADDER LOGIC COMPARISON.
                         # Load TRACE's comparison engine and compare the accepted
                         # baseline against the newly uploaded project.
                         #
@@ -622,7 +623,7 @@ def demo():
                             staged_path
                         )
                         
-                        # STEP 388: LOAD THE GRAPHICAL LADDER RENDERER.
+                        # LOAD THE GRAPHICAL LADDER RENDERER.
 
                         ladder_renderer_path = Path(__file__).with_name(
                             "V0.022_Ladder_Renderer.py"
@@ -639,7 +640,7 @@ def demo():
 
                         ladder_spec.loader.exec_module(ladder_renderer)
 
-                        # STEP 382: ADD EXACT CHANGE HIGHLIGHTING TO EACH RUNG.
+                        # ADD EXACT CHANGE HIGHLIGHTING TO EACH RUNG.
                         # Preserve the complete instruction strings while identifying
                         # changed characters, instructions, and operands.
 
@@ -654,7 +655,7 @@ def demo():
 
                             change["previous_parts"] = previous_parts
                             change["new_parts"] = new_parts
-                            # STEP 388: PREPARE INSTRUCTIONS FOR GRAPHICAL DISPLAY.
+                            # PREPARE INSTRUCTIONS FOR GRAPHICAL DISPLAY.
 
                             change["previous_instructions"] = ladder_renderer.parse_ladder_rung(
                                 change["previous_logic"]
@@ -664,7 +665,7 @@ def demo():
                                 change["new_logic"]
                             )
 
-                            # STEP 512: COMPARE INSTRUCTIONS BEFORE SVG RENDERING.
+                            # COMPARE INSTRUCTIONS BEFORE SVG RENDERING.
                             # Preserve instruction-level change information for both versions.
 
                             previous_elements = ladder_renderer.parse_ladder_structure(
@@ -713,7 +714,7 @@ def demo():
                                 "No ladder rung changes detected. "
                                 "Other project data may have changed."
                             )
-                        # STEP 352: SAVE CHANGED L5X FOR USER REVIEW.
+                        # PREPARE A FILENAME FOR THE CHANGED L5X BACKUP.
                         new_backup_name = backup_manager.generate_backup_filename(
                             controller_id=int(controller_id),
                             storage_root=controller_folder,
@@ -723,7 +724,7 @@ def demo():
 # Keep the uploaded temporary file for Retain/Discard.
 # Do not copy it into a Pending directory.
 
-                        # STEP 354A: REMEMBER THE EXACT BACKUP AWAITING REVIEW.
+                        # STORE THE TEMPORARY BACKUP DETAILS FOR USER REVIEW.
                         session["pending_backup_review"] = {
                             "controller_id": int(controller_id),
                             "filename": new_backup_name,
@@ -747,10 +748,10 @@ def demo():
             finally:
                 if staged_path is not None:
                     staged_path.unlink(missing_ok=True)
-        # STEP 354B: PROCESS THE USER'S BACKUP REVIEW DECISION.
+        # PROCESS THE USER'S RETAIN OR DISCARD DECISION.
         # Retain moves the pending file into the accepted Backup folder.
         # Discard deletes only the pending file, never the baseline.
-                # STEP 354B: PROCESS RETAIN/DISCARD USING TEMPORARY STORAGE.
+                # VALIDATE AND PROCESS THE TEMPORARY BACKUP FILE.
         if request.form.get("action") in ("retain_backup", "discard_backup"):
             try:
                 import re
@@ -853,7 +854,7 @@ def demo():
                 ) = register_demo_initial_audit(
                     request.form.get("controller_id")
                 )
-                # STEP 493: CREATE CONTROLLER BACKUP FOLDERS
+                # CREATE CONTROLLER BACKUP FOLDERS
                 # AFTER SUCCESSFUL INITIAL AUDIT REGISTRATION.
 
                 controller_id = int(
@@ -902,17 +903,16 @@ def demo():
         rung_changes=rung_changes
     )
 
-# STEP 8: INITIALIZE SQL SERVER BEFORE STARTING TRACE.
-# STEP 8: INITIALIZE SQL SERVER BEFORE STARTING TRACE.
+# STEP 12: INITIALIZE DATABASE AND START TRACE WEB INTERFACE.
 if __name__ == "__main__":
     from V0_013_Database_Setup import initialize_database
 
-    # STEP 8A: RUN DATABASE SETUP AUTOMATICALLY.
+    # RUN DATABASE SETUP AUTOMATICALLY.
     print("TRACE: Checking database installation...")
     initialize_database()
     print("TRACE: Database initialization successful.")
 
-    # STEP 8B: START THE WEB INTERFACE.
+    # START THE WEB INTERFACE.
     app.run(debug=False, host="127.0.0.1", port=5000)
 
 

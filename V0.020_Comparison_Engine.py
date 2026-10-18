@@ -1,20 +1,16 @@
-# STEP 297: TRACE COMPARISON ENGINE
-# Read-only comparison of PLC project files.
-
+﻿
+# STEP 1: Import file handling, hashing, XML parsing, and comparison libraries.
 from pathlib import Path
 import hashlib
-# STEP 362: EXTRACT LADDER RUNGS FROM AN L5X PROJECT.
-# Organizes each rung by task, program, routine, and rung number.
-# Preserves the complete instruction text, including nested parentheses
-# and parallel branches.
 
 import xml.etree.ElementTree as ET
 
 
+# STEP 2: Parse an L5X file and extract its ladder logic.
 def extract_l5x_rungs(file_path):
     root = ET.parse(file_path).getroot()
 
-    # Map programs to the tasks that schedule them.
+# STEP 3: Associate each program with the tasks that schedule it.
     program_tasks = {}
 
     for task in root.findall(".//Tasks/Task"):
@@ -25,6 +21,7 @@ def extract_l5x_rungs(file_path):
             if program_name:
                 program_tasks.setdefault(program_name, []).append(task_name)
 
+# STEP 4: Identify ladder routines and index their rungs by location.
     rungs = {}
 
     for program in root.findall(".//Programs/Program"):
@@ -53,29 +50,9 @@ def extract_l5x_rungs(file_path):
 
     return rungs
 
-# STEP 363: COMPARE TWO L5X PROJECTS AT THE RUNG LEVEL.
-#
-# PURPOSE:
-# Identify ladder logic changes without comparing unrelated XML metadata.
-#
-# INPUTS:
-# baseline_path - Previously accepted L5X backup.
-# uploaded_path - New L5X project awaiting review.
-#
-# OUTPUT:
-# A list of changes containing:
-# - Task
-# - Program
-# - Routine
-# - Rung number
-# - Change type (Added, Removed, Modified)
-# - Previous rung logic
-# - New rung logic
-#
-# All instruction parentheses, operands, and parallel branches
-# are preserved exactly as extracted from the L5X files.
 
 
+# STEP 5: Extract and compare rung dictionaries from two L5X projects.
 def compare_l5x_rungs(baseline_path, uploaded_path):
 
     baseline_rungs = extract_l5x_rungs(baseline_path)
@@ -93,6 +70,7 @@ def compare_l5x_rungs(baseline_path, uploaded_path):
         )
     )
 
+# STEP 6: Classify each rung as added, removed, modified, or unchanged.
     for key in all_rung_keys:
 
         task_name, program_name, routine_name, rung_number = key
@@ -124,11 +102,11 @@ def compare_l5x_rungs(baseline_path, uploaded_path):
 
     return changes
 
-# STEP 381: IDENTIFY EXACT CHANGED SPANS WITHIN A RUNG.
 
 import difflib
 
 
+# STEP 7: Identify changed character spans for visual highlighting.
 def highlight_rung_changes(previous_logic, new_logic):
     matcher = difflib.SequenceMatcher(
         None,
@@ -155,6 +133,7 @@ def highlight_rung_changes(previous_logic, new_logic):
 
     return previous_parts, new_parts
 
+# STEP 8: Calculate a SHA-256 fingerprint using one-megabyte file chunks.
 def calculate_file_hash(file_path):
     """Calculate a SHA-256 hash of a project file."""
 
@@ -167,6 +146,7 @@ def calculate_file_hash(file_path):
     return sha256.hexdigest()
 
 
+# STEP 9: Validate both project paths before comparing file hashes.
 def compare_project_files(file_a, file_b):
     """Determine whether two project files are identical."""
 
@@ -182,6 +162,7 @@ def compare_project_files(file_a, file_b):
     hash_a = calculate_file_hash(file_a)
     hash_b = calculate_file_hash(file_b)
 
+# STEP 10: Return the file comparison result and both SHA-256 hashes.
     return {
         "result": "IDENTICAL" if hash_a == hash_b else "DIFFERENT",
         "hash_a": hash_a,

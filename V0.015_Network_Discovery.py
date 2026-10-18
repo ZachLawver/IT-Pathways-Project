@@ -1,22 +1,18 @@
-# ==========================================================
-# TRACE - NETWORK DISCOVERY - VERSION 0.015
-# ==========================================================
+﻿
 
-# STEP 461: IMPORT REQUIRED LIBRARIES.
-
+# STEP 1: Import subnet validation tools.
 import ipaddress
 
 
-# STEP 461A: CONFIGURE APPROVED DISCOVERY NETWORKS.
-# Do not automatically scan every computer network adapter.
 
+# STEP 2: Configure approved discovery networks.
 DISCOVERY_NETWORKS = [
     "192.168.1.0/24"
 ]
 
 
-# STEP 461B: GENERATE VALID HOST ADDRESSES.
 
+# STEP 3: Generate usable host addresses.
 def get_discovery_addresses():
 
     addresses = []
@@ -33,55 +29,64 @@ def get_discovery_addresses():
 
     return addresses
 
-# STEP 462: DISCOVER ETHERNET/IP DEVICES.
-# Use a bounded, read-only discovery operation.
-# No SQL registration occurs during discovery.
 
+# STEP 4: Import EtherNet/IP discovery support.
 from pycomm3 import CIPDriver
 
 
+# STEP 5: Start read-only device discovery.
 def discover_devices():
 
-    print("TRACE: Scanning approved network...")
-
-    devices = CIPDriver.discover(
-        broadcast_address="192.168.1.255"
-    )
+    print("TRACE: Scanning approved networks...")
 
     results = []
+    seen_addresses = set()
 
-    for device in devices:
+    for subnet in DISCOVERY_NETWORKS:
 
-        ip_address = device.get("ip_address")
-        product_name = device.get("product_name")
-        product_type = device.get("product_type")
+        # STEP 6: Calculate each configured subnet's broadcast address.
+        network = ipaddress.ip_network(subnet, strict=True)
+        broadcast = str(network.broadcast_address)
 
-        # STEP 463: CAPTURE DEVICE IDENTITY FOR PLC QUALIFICATION.
-        # Discovery remains read-only and does not modify SQL.
+        print(f"TRACE: Discovering devices on {subnet}")
 
-        results.append({
-            "ip_address": ip_address,
-            "product_name": product_name,
-            "product_type": product_type,
-            "vendor": device.get("vendor"),
-            "product_code": device.get("product_code"),
-            "serial": device.get("serial"),
-            "revision": device.get("revision")
-        })
+        devices = CIPDriver.discover(
+            broadcast_address=broadcast
+        )
+
+        # STEP 7: Filter device responses by IP address.
+        for device in devices:
+
+            ip_address = device.get("ip_address")
+
+            if not ip_address or ip_address in seen_addresses:
+                continue
+
+            if ipaddress.ip_address(ip_address) not in network:
+                continue
+
+            seen_addresses.add(ip_address)
+
+            results.append({
+                "ip_address": ip_address,
+                "product_name": device.get("product_name"),
+                "product_type": device.get("product_type"),
+                "vendor": device.get("vendor"),
+                "product_code": device.get("product_code"),
+                "serial": device.get("serial"),
+                "revision": device.get("revision")
+            })
 
     return results
 
-# STEP 464: IDENTIFY DISCOVERED ROCKWELL PLCs.
-# Reuse the existing Ethernet Monitor's identification function.
-# Do not register anything in SQL during this test.
 
 import importlib.util
 from pathlib import Path
 
 
+# STEP 8: Identify qualifying Rockwell controllers.
 def identify_discovered_plcs(devices):
 
-    # STEP 464A: LOAD THE EXISTING ETHERNET MONITOR.
 
     monitor_path = (
         Path(__file__).resolve().parent
@@ -98,7 +103,6 @@ def identify_discovered_plcs(devices):
 
     identified = []
 
-    # STEP 464B: FILTER DISCOVERED DEVICES.
 
     for device in devices:
 
@@ -114,8 +118,6 @@ def identify_discovered_plcs(devices):
         ):
             continue
 
-        # STEP 464C: READ THE CONTROLLER'S PROGRAM NAME
-        # AND PHYSICAL IDENTITY.
 
         try:
             identity = monitor.identify_controller(
@@ -132,10 +134,8 @@ def identify_discovered_plcs(devices):
 
     return identified
 
-# STEP 465: SYNCHRONIZE DISCOVERED PLCs WITH SQL.
-# Reuse the existing registration and serial-number tracking.
-# Do not create a second registration mechanism.
 
+# STEP 9: Register identified controllers in SQL.
 def synchronize_discovered_plcs(controllers):
 
     monitor_path = (
@@ -181,8 +181,8 @@ def synchronize_discovered_plcs(controllers):
 
     return results
 
-# STEP 462A: TEST LIVE NETWORK DISCOVERY.
 
+# STEP 10: Run standalone discovery and display results.
 if __name__ == "__main__":
 
     addresses = get_discovery_addresses()
@@ -197,39 +197,35 @@ if __name__ == "__main__":
 
         print("\nDiscovered devices:", len(devices))
 
-        # STEP 463A: DISPLAY DISCOVERED DEVICE IDENTITIES.
-
         for device in devices:
             print("\nDiscovered device:")
             for field, value in device.items():
                 print(f"  {field}: {value}")
 
-            # STEP 464D: TEST PLC IDENTIFICATION AFTER DISCOVERY.
+        print("\nTRACE - IDENTIFIED PLCs")
+        print("-----------------------")
 
-            print("\nTRACE - IDENTIFIED PLCs")
-            print("-----------------------")
+        # STEP 11: Identify controllers once per discovery cycle.
+        controllers = identify_discovered_plcs(devices)
 
-            controllers = identify_discovered_plcs(devices)
+        for controller in controllers:
+            print("IP Address:", controller["ip_address"])
+            print("Controller Name:", controller["controller_name"])
+            print("Serial Number:", controller["serial_number"])
+            print("Firmware:", controller["firmware_major"])
 
-            for controller in controllers:
-                print("IP Address:", controller["ip_address"])
-                print("Controller Name:", controller["controller_name"])
-                print("Serial Number:", controller["serial_number"])
-                print("Firmware:", controller["firmware_major"])
+        print("\nTRACE - SQL INVENTORY SYNCHRONIZATION")
+        print("-------------------------------------")
 
-                # STEP 465A: SYNCHRONIZE DISCOVERED PLCs WITH TRACE.
+        # STEP 12: Synchronize controllers once per discovery cycle.
+        synchronized = synchronize_discovered_plcs(controllers)
 
-                print("\nTRACE - SQL INVENTORY SYNCHRONIZATION")
-                print("-------------------------------------")
-
-                synchronized = synchronize_discovered_plcs(controllers)
-
-                for result in synchronized:
-                    print(
-                        f"Controller ID: {result['controller_id']} | "
-                        f"Name: {result['controller_name']} | "
-                        f"Action: {result['action']}"
-                    )
+        for result in synchronized:
+            print(
+                f"Controller ID: {result['controller_id']} | "
+                f"Name: {result['controller_name']} | "
+                f"Action: {result['action']}"
+            )
 
     except Exception as error:
         print("Discovery failed:", error)

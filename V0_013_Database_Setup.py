@@ -1,19 +1,19 @@
-﻿
-# ==========================================================
-# TRACE - AUTOMATIC DATABASE INSTALLER - VERSION 0.013
-# Creates the database and initial tables when missing.
-# Does not delete existing data.
-# ==========================================================
+﻿# TRACE - DATABASE INSTALLER - VERSION 0.013
+# Sequential study annotations explain the database initialization process.
+# Existing database records are preserved.
 
-# STEP 1: IMPORT REQUIRED LIBRARIES.
+
+
+# STEP 1: Import the libraries used for SQL Server connections and configuration.
 import pyodbc
 import os
 
 
-# STEP 2: CONFIGURE SQL SERVER.
+# STEP 2: Configure the SQL Server instance and TRACE database name.
 SERVER = os.environ.get("TRACE_SQL_SERVER", r"localhost\SQLEXPRESS")
 DATABASE = "TRACE"
 
+# STEP 3: Build the ODBC connection string using Windows authentication.
 def connection_string(database):
     return (
         "DRIVER={ODBC Driver 18 for SQL Server};"
@@ -25,7 +25,7 @@ def connection_string(database):
     )
 
 
-# STEP 3: CREATE THE DATABASE IF IT DOES NOT EXIST.
+# STEP 4: Create the TRACE database if it does not already exist.
 def create_database():
     connection = pyodbc.connect(
         connection_string("master"),
@@ -49,7 +49,7 @@ def create_database():
         connection.close()
 
 
-# STEP 4: CREATE THE APPLICATION TABLES IF MISSING.
+# STEP 5: Connect to TRACE and verify the application database schema.
 def create_tables():
     connection = pyodbc.connect(
         connection_string(DATABASE),
@@ -59,7 +59,7 @@ def create_tables():
     try:
         cursor = connection.cursor()
 
-        # STEP 4A: CONTROLLER INVENTORY.
+        # STEP 6: Create the controller inventory table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.Controllers', N'U') IS NULL
             BEGIN
@@ -81,7 +81,7 @@ def create_tables():
             END
         """)
 
-        # STEP 4B: BACKUP INVENTORY.
+        # STEP 7: Create the backup inventory and retention history table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.Backups', N'U') IS NULL
             BEGIN
@@ -109,6 +109,7 @@ def create_tables():
             END
         """)
 
+        # STEP 8: Create the comparison results and audit history table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.BackupComparisons', N'U') IS NULL
             BEGIN
@@ -141,7 +142,7 @@ def create_tables():
             END
         """)
 
-        # STEP 4C: RUNG CHANGE HISTORY.
+        # STEP 9: Create the ladder logic change history table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.RungChanges', N'U') IS NULL
             BEGIN
@@ -166,10 +167,8 @@ def create_tables():
             END
         """)
 
-        # STEP 4D: ADD LIVE CONTROLLER MONITORING COLUMNS.
-        # These statements update existing TRACE databases.
-        # New databases receive the same columns automatically.
 
+        # STEP 10: Add monitoring columns required by older database versions.
         cursor.execute("""
             IF COL_LENGTH('dbo.Controllers', 'FirmwareMajor') IS NULL
                 ALTER TABLE dbo.Controllers
@@ -205,12 +204,8 @@ def create_tables():
         print("TRACE controller monitoring columns verified.")
 
         
-        # STEP 4B: CREATE THE CONTROLLER HARDWARE HISTORY TABLE.
-        # The Controllers table represents the machine or installation.
-        # ControllerHardware represents physical PLC processors.
-        # Replacing a processor creates a new hardware record without
-        # deleting the previous processor or its equipment history.
 
+        # STEP 11: Create the physical processor installation history table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.ControllerHardware', N'U') IS NULL
             BEGIN
@@ -234,10 +229,8 @@ def create_tables():
             END
         """)
 
-        # STEP 4C: PREVENT MULTIPLE ACTIVE PROCESSORS
-        # FROM BEING ASSIGNED TO THE SAME INSTALLATION.
-        # A NULL RemovedAt means the processor is still installed.
 
+        # STEP 12: Enforce one active processor per installation.
         cursor.execute("""
             IF NOT EXISTS (
                 SELECT 1
@@ -253,9 +246,8 @@ def create_tables():
             END
         """)
 
-        # STEP 4D: PREVENT ONE PHYSICAL PROCESSOR
-        # FROM BEING ACTIVE IN MULTIPLE INSTALLATIONS.
 
+        # STEP 13: Prevent a processor from being active in multiple installations.
         cursor.execute("""
             IF NOT EXISTS (
                 SELECT 1
@@ -271,13 +263,10 @@ def create_tables():
             END
         """)
 
-        # STEP 4E: CONFIRM HARDWARE TABLE SETUP.
         print("TRACE hardware history table verified.")
              
-        # STEP 4F: CREATE THE HARDWARE EVENT HISTORY TABLE.
-        # Stores processor replacement warnings and other
-        # hardware events without changing equipment identity.
 
+        # STEP 14: Create the hardware detection and resolution event table.
         cursor.execute("""
             IF OBJECT_ID(N'dbo.HardwareEvents', N'U') IS NULL
             BEGIN
@@ -302,9 +291,8 @@ def create_tables():
             END
         """)
 
-        # STEP 1: CHECK WHETHER THE RESOLVEDBY COLUMN EXISTS.
-        # This allows older TRACE databases to be updated automatically.
 
+        # STEP 15: Add technician attribution to older hardware event tables.
         cursor.execute("""
             IF OBJECT_ID('dbo.HardwareEvents', 'U') IS NOT NULL
             AND COL_LENGTH('dbo.HardwareEvents', 'ResolvedBy') IS NULL
@@ -314,14 +302,13 @@ def create_tables():
             END
         """)
 
-        # STEP 2: SAVE THE DATABASE SCHEMA UPDATE.
         connection.commit()
 
         print("PASS: HardwareEvents technician attribution schema verified.")
 
-        # STEP 4G: VERIFY THE HARDWARE EVENTS TABLE.
         print("TRACE hardware events table verified.")
 
+        # STEP 16: Commit the final schema updates.
         connection.commit()
         print("TRACE database tables verified.")
         
@@ -333,14 +320,14 @@ def create_tables():
         connection.close()
 
 
-# STEP 5: INITIALIZE THE COMPLETE DATABASE.
+# STEP 17: Initialize the database and verify its application tables.
 def initialize_database():
     create_database()
     create_tables()
     print("TRACE database initialization complete.")
 
 
-# STEP 6: RUN AS A STANDALONE INSTALLER.
+# STEP 18: Run the database installer when executed directly.
 if __name__ == "__main__":
     try:
         initialize_database()
