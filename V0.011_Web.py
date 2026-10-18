@@ -38,6 +38,63 @@ connection_string = (
     "TrustServerCertificate=yes;"
 )
 
+
+# TRACE COMMISSIONING RESET ? CONFIRMATION PAGE ONLY.
+@app.route("/demo/reset", methods=["GET", "POST"])
+def commissioning_reset():
+    if request.method == "POST":
+        expected_token = session.pop("commissioning_reset_token", None)
+        submitted_token = request.form.get("reset_token", "")
+
+        if (
+            not expected_token
+            or not secrets.compare_digest(expected_token, submitted_token)
+        ):
+            return "Invalid or expired reset confirmation.", 403
+
+        confirmation = request.form.get("reset_confirmation", "")
+
+        if confirmation != "RESET":
+            return "Confirmation must be exactly RESET.", 400
+
+        # Execute only after explicit confirmation.
+        import importlib.util
+
+        reset_path = (
+            Path(__file__).resolve().parent
+            / "V0_020_Commissioning_Reset.py"
+        )
+
+        spec = importlib.util.spec_from_file_location(
+            "trace_commissioning_reset",
+            reset_path
+        )
+        reset_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reset_module)
+
+        try:
+            reset_module.execute_commissioning_reset(
+                connection_string,
+                BACKUP_ROOT
+            )
+        except Exception as error:
+            app.logger.exception("Commissioning reset failed")
+            return (
+                "Commissioning reset failed or is incomplete. "
+                "Inspect the TRACE server logs before retrying.",
+                500
+            )
+
+        session.clear()
+        return redirect(url_for("demo"))
+
+    session["commissioning_reset_token"] = secrets.token_urlsafe(32)
+    return render_template(
+        "commissioning_reset.html",
+        reset_token=session["commissioning_reset_token"]
+    )
+
+
 @app.route("/")
 def home():
     return redirect(url_for("demo"))
@@ -856,7 +913,7 @@ if __name__ == "__main__":
     print("TRACE: Database initialization successful.")
 
     # STEP 8B: START THE WEB INTERFACE.
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    app.run(debug=False, host="127.0.0.1", port=5000)
 
 
 

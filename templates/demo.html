@@ -358,6 +358,28 @@
         </div>
     </section>
 
+
+    <!-- TRACE COMMISSIONING RESET CONTROL -->
+    <section class="trace-card">
+        <div class="trace-card-header">
+            <h2>Commissioning Controls</h2>
+        </div>
+        <div class="trace-card-body">
+            <p>
+                Return TRACE to an empty commissioning state.
+                This deletes controller records, comparison history,
+                audit registrations, and stored backups.
+                Physical PLCs are not modified.
+            </p>
+
+            <form action="{{ url_for('commissioning_reset') }}" method="GET">
+                <button type="submit" class="trace-button-danger">
+                    Reset to Commissioning State
+                </button>
+            </form>
+        </div>
+    </section>
+
 </div>
 
 {% endblock %}
