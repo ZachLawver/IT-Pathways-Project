@@ -202,13 +202,7 @@ def mark_ladder_changes(previous_elements, new_elements):
             )
 
         if item["kind"] == "branch":
-            return (
-                "branch",
-                tuple(
-                    tuple(signature(child) for child in path)
-                    for path in item["paths"]
-                )
-            )
+            return ("branch",)
 
         return ("raw", item.get("text", ""))
 
@@ -220,6 +214,46 @@ def mark_ladder_changes(previous_elements, new_elements):
             elif item["kind"] == "branch":
                 for path in item["paths"]:
                     mark(path, status)
+
+    def compare_branch_paths(old_paths, new_paths):
+        def path_signature(path):
+            return tuple(signature(item) for item in path)
+
+        matcher = SequenceMatcher(
+            None,
+            [path_signature(path) for path in old_paths],
+            [path_signature(path) for path in new_paths],
+            autojunk=False
+        )
+
+        for operation, i1, i2, j1, j2 in matcher.get_opcodes():
+            if operation == "equal":
+                for old_path, new_path in zip(
+                    old_paths[i1:i2],
+                    new_paths[j1:j2]
+                ):
+                    compare(old_path, new_path)
+
+            elif operation == "delete":
+                for path in old_paths[i1:i2]:
+                    mark(path, "removed")
+
+            elif operation == "insert":
+                for path in new_paths[j1:j2]:
+                    mark(path, "added")
+
+            elif operation == "replace":
+                old_group = old_paths[i1:i2]
+                new_group = new_paths[j1:j2]
+
+                if len(old_group) == len(new_group):
+                    for old_path, new_path in zip(old_group, new_group):
+                        compare(old_path, new_path)
+                else:
+                    for path in old_group:
+                        mark(path, "removed")
+                    for path in new_group:
+                        mark(path, "added")
 
     def compare(previous, current):
         matcher = SequenceMatcher(
@@ -241,11 +275,10 @@ def mark_ladder_changes(previous_elements, new_elements):
                         old_item["kind"] == "branch"
                         and new_item["kind"] == "branch"
                     ):
-                        for old_path, new_path in zip(
+                        compare_branch_paths(
                             old_item["paths"],
                             new_item["paths"]
-                        ):
-                            compare(old_path, new_path)
+                        )
                     else:
                         mark([old_item], "unchanged")
                         mark([new_item], "unchanged")
@@ -708,14 +741,6 @@ def render_ladder_svg(logic, elements=None):
 
         change_status = item.get("change_status", "unchanged")
         highlight_color = change_colors.get(change_status)
-
-        if highlight_color:
-            parts.append(
-                f'<rect x="{x - 48}" y="{y - 52}" '
-                f'width="96" height="82" rx="8" '
-                f'fill="{highlight_color}" fill-opacity="0.15" '
-                f'stroke="{highlight_color}" stroke-width="2"/>'
-            )
 
         # STEP 515: HIGHLIGHT CHANGED STRAIGHT-RUNG INSTRUCTIONS.
         # Green = added, red = removed, yellow = modified.
