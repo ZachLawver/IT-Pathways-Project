@@ -6,6 +6,7 @@ import os
 # STEP 1A: IMPORT SUPPORT FOR PROJECT FILE UPLOADS.
 from pathlib import Path
 import importlib.util
+import tempfile
 
 # DEMO STEP 20A: IMPORT PLC AUDIT READER DEPENDENCIES.
 from pycomm3 import CIPDriver
@@ -453,13 +454,14 @@ def demo():
                 if Path(uploaded_file.filename).suffix.lower() != ".l5x":
                     raise ValueError("Only L5X files are supported.")
 
-                staging_folder = BACKUP_ROOT / "Staging"
-                staging_folder.mkdir(parents=True, exist_ok=True)
-
-                staged_path = staging_folder / f"{uuid4().hex}.L5X"
-
-                with staged_path.open("xb") as output:
-                    uploaded_file.save(output)
+                with tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    suffix=".L5X",
+                    prefix="TRACE_",
+                    delete=False
+                ) as temporary_file:
+                    staged_path = Path(temporary_file.name)
+                    uploaded_file.save(temporary_file)
 
                 # STEP 337: GET CONTROLLER NAME FROM THE SELECTED PLC.
                 controller_name = selected_controller["friendly_name"]
@@ -486,8 +488,6 @@ def demo():
 
                 archive_folder = controller_folder / "Backup"
                 archive_folder.mkdir(parents=True, exist_ok=True)
-
-                (controller_folder / "Hold").mkdir(parents=True, exist_ok=True)
 
                 existing_backups = sorted(
                     archive_folder.glob("*.L5X"),
@@ -657,24 +657,24 @@ def demo():
                                 "Other project data may have changed."
                             )
                         # STEP 352: SAVE CHANGED L5X FOR USER REVIEW.
-                        pending_folder = controller_folder / "Pending"
-                        pending_folder.mkdir(parents=True, exist_ok=True)
-
                         new_backup_name = backup_manager.generate_backup_filename(
                             controller_id=int(controller_id),
                             storage_root=controller_folder,
                             file_extension=".L5X"
                         )
 
-                        new_backup_path = pending_folder / new_backup_name
-
-                        shutil.copy2(staged_path, new_backup_path)
+# Keep the uploaded temporary file for Retain/Discard.
+# Do not copy it into a Pending directory.
 
                         # STEP 354A: REMEMBER THE EXACT BACKUP AWAITING REVIEW.
                         session["pending_backup_review"] = {
                             "controller_id": int(controller_id),
-                            "filename": new_backup_name
+                            "filename": new_backup_name,
+                            "temporary_id": staged_path.stem
                         }
+
+                        # Preserve this temporary upload until Retain/Discard.
+                        staged_path = None
 
                         upload_message = (
                             f"Compared against: {latest_backup.name} | "
@@ -683,86 +683,91 @@ def demo():
     )
                                     
             except Exception as error:
+                import traceback
+                traceback.print_exc()
                 upload_error = str(error)
+
             finally:
                 if staged_path is not None:
                     staged_path.unlink(missing_ok=True)
         # STEP 354B: PROCESS THE USER'S BACKUP REVIEW DECISION.
         # Retain moves the pending file into the accepted Backup folder.
         # Discard deletes only the pending file, never the baseline.
+                # STEP 354B: PROCESS RETAIN/DISCARD USING TEMPORARY STORAGE.
         if request.form.get("action") in ("retain_backup", "discard_backup"):
             try:
-                import shutil
+                import re
 
                 action = request.form.get("action")
                 review = session.get("pending_backup_review")
 
-                if review:
-                    # Resolve the PLC from SQL, not from a browser-supplied path.
-                    selected = get_demo_selected_controller(
-                        review["controller_id"]
+                if not isinstance(review, dict):
+                    raise ValueError(
+                        "No backup is awaiting review. Run the comparison again."
                     )
 
-                    controller_name = selected["friendly_name"]
-                    filename = review["filename"]
+                selected = get_demo_selected_controller(
+                    review["controller_id"]
+                )
 
-                    if Path(filename).name != filename:
-                        raise ValueError("Invalid pending backup filename.")
+                controller_name = selected["friendly_name"]
+                filename = review["filename"]
+                temporary_id = review["temporary_id"]
 
-                    controller_folder = (
-                        BACKUP_ROOT / controller_name
+                if (
+                    not isinstance(filename, str)
+                    or Path(filename).name != filename
+                    or Path(filename).suffix.lower() != ".l5x"
+                ):
+                    raise ValueError("Invalid backup filename.")
+
+                if (
+                    not isinstance(temporary_id, str)
+                    or not re.fullmatch(
+                        r"TRACE_[0-9A-Za-z_-]+",
+                        temporary_id
                     )
+                ):
+                    raise ValueError("Invalid temporary upload identifier.")
 
-                    pending_path = (
-                        controller_folder / "Pending" / filename
-                    )
+                temporary_root = Path(tempfile.gettempdir()).resolve()
+                temporary_path = (
+                    temporary_root / f"{temporary_id}.L5X"
+                )
 
-                else:
-                    # Recover an existing pending file when the server was
-                    # restarted before session tracking was added.
-                    candidates = []
+                if temporary_path.resolve().parent != temporary_root:
+                    raise ValueError("Invalid temporary upload location.")
 
-                    for controller in demo_controllers:
-                        folder = (
-                            BACKUP_ROOT
-                            / controller["ControllerName"]
-                        )
-
-                        for file in (folder / "Pending").glob("*.L5X"):
-                            candidates.append(
-                                (controller["ControllerName"], file)
-                            )
-
-                    if len(candidates) != 1:
-                        raise ValueError(
-                            "Unable to identify a single pending backup. "
-                            "Run the comparison again."
-                        )
-
-                    controller_name, pending_path = candidates[0]
-                    controller_folder = pending_path.parent.parent
-
-                expected_pending = (controller_folder / "Pending").resolve()
-                if pending_path.resolve().parent != expected_pending:
-                    raise ValueError("Backup is outside the Pending directory.")
-
-                if not pending_path.is_file():
+                if not temporary_path.is_file():
                     raise FileNotFoundError(
-                        "Pending backup file was not found."
+                        "Temporary upload was not found. "
+                        "Run the comparison again."
                     )
 
                 if action == "retain_backup":
+                    controller_folder = BACKUP_ROOT / controller_name
                     backup_folder = controller_folder / "Backup"
                     backup_folder.mkdir(parents=True, exist_ok=True)
 
-                    destination = backup_folder / pending_path.name
+                    destination = backup_folder / filename
 
-                    if destination.exists():
-                        raise FileExistsError(
-                            "An accepted backup already has this filename."
-                        )
+                    backup_manager_path = Path(__file__).with_name(
+                        "V0_019_Backup_Manager.py"
+                    )
 
-                    shutil.move(str(pending_path), str(destination))
+                    spec = importlib.util.spec_from_file_location(
+                        "trace_backup_manager",
+                        backup_manager_path
+                    )
+                    backup_manager = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(backup_manager)
+
+                    backup_manager.copy_verified_backup(
+                        temporary_path,
+                        destination
+                    )
+
+                    temporary_path.unlink()
 
                     upload_message = (
                         f"Backup Retained for {controller_name}: "
@@ -770,12 +775,11 @@ def demo():
                     )
 
                 else:
-                    pending_filename = pending_path.name
-                    pending_path.unlink()
+                    temporary_path.unlink()
 
                     upload_message = (
                         f"Backup Discarded for {controller_name}: "
-                        f"{pending_filename}"
+                        f"{filename}"
                     )
 
                 session.pop("pending_backup_review", None)
@@ -805,11 +809,6 @@ def demo():
                 )
 
                 (backup_root / "Backup").mkdir(
-                    parents=True,
-                    exist_ok=True
-                )
-
-                (backup_root / "Hold").mkdir(
                     parents=True,
                     exist_ok=True
                 )

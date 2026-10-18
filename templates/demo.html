@@ -90,9 +90,11 @@
                 <div class="trace-notice trace-notice-success">
                     <strong>{{ registration_message }}</strong>
 
-                    <p><strong>PLC Name:</strong> {{ friendly_name }}</p>
-                    <p><strong>Serial Number:</strong> {{ registered_serial }}</p>
-                    <p><strong>Initial Audit Value:</strong> {{ registered_audit }}</p>
+                    {% if request.form.get("action") != "scan_network" %}
+                        <p><strong>PLC Name:</strong> {{ friendly_name }}</p>
+                        <p><strong>Serial Number:</strong> {{ registered_serial }}</p>
+                        <p><strong>Initial Audit Value:</strong> {{ registered_audit }}</p>
+                    {% endif %}
                 </div>
             {% endif %}
 
