@@ -57,9 +57,6 @@ def commissioning_reset():
         if confirmation != "RESET":
             return "Confirmation must be exactly RESET.", 400
 
-        # Execute only after explicit confirmation.
-        import importlib.util
-
         reset_path = (
             Path(__file__).resolve().parent
             / "V0_020_Commissioning_Reset.py"
@@ -443,8 +440,6 @@ def demo():
         if request.form.get("action") == "scan_network":
 
             try:
-                import importlib.util
-
                 discovery_path = Path(__file__).resolve().parent / (
                     "V0.015_Network_Discovery.py"
                 )
@@ -523,9 +518,6 @@ def demo():
 
                 # GET CONTROLLER NAME FROM THE SELECTED PLC.
                 controller_name = selected_controller["friendly_name"]
-
-                # LOAD THE EXISTING TRACE BACKUP NAMING FUNCTIONS.
-                import importlib.util
 
                 backup_manager_path = Path(__file__).with_name(
                     "V0_019_Backup_Manager.py"
